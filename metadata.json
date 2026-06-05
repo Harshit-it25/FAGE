@@ -1,0 +1,6 @@
+{
+  "name": "FAGE",
+  "description": "Mule Account Detection & Risk Intelligence Platform providing enterprise surveillance, anomaly detection, and deep machine learning explainability.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

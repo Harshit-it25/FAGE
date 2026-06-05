@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  #        FastAPI Explainer Backend
+  # ==========================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend-service
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NODE_ENV=production
+    volumes:
+      - ./backend/models:/app/backend/models
+    restart: unless-stopped
+
+  # ==========================================
+  #         React Web Dashboard Frontend
+  # ==========================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend-builder
+    # When deploying behind nginx or proxy servers, frontends can serve static assets directly
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
