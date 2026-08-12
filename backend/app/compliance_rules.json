@@ -1,0 +1,30 @@
+{
+    "_comment": "FAGE Compliance Rules — all thresholds and rule configuration for the heuristic override engine.",
+
+    "sanctioned_countries": ["IR", "KP", "SY", "SD", "CU"],
+    "amount_threshold": 150000.0,
+    "new_account_max_days": 7.0,
+    "new_account_transfer_threshold": 25000.0,
+
+    "_comment_structuring": "Structuring / smurfing detection band. Transactions where BOTH target and candidate amounts fall within [band_min, band_max] are flagged as co-occurring near-threshold structuring.",
+    "structuring_band_min": 9000,
+    "structuring_band_max": 9999,
+
+    "_comment_velocity": "High-velocity pattern detection. Accounts with velocity_6h >= high_velocity_threshold within high_velocity_window_hours hours are flagged as exhibiting synchronized high-velocity patterns.",
+    "high_velocity_threshold": 3,
+    "high_velocity_window_hours": 6,
+
+    "_comment_reserved": "The following rules are RESERVED FOR v2 — they are not yet consumed by any code path in main.py or risk_engine.py. They are included here to demonstrate rule depth and allow future wiring without a config-schema change.",
+
+    "_comment_dormant": "RESERVED v2 — not yet wired into main.py. Flag accounts that have been inactive for more than dormant_account_reactivation_days days before a new transaction appears.",
+    "dormant_account_reactivation_days": 180,
+
+    "_comment_corridors": "RESERVED v2 — not yet wired into main.py. High-risk sender/receiver country pairs beyond simple OFAC sanctions (e.g. known hawala corridors or high-risk transit routes). Each entry is [origin_iso2, destination_iso2].",
+    "high_risk_corridor_pairs": [
+        ["RU", "IR"],
+        ["CN", "KP"],
+        ["AE", "IR"],
+        ["TR", "SY"],
+        ["PK", "AF"]
+    ]
+}

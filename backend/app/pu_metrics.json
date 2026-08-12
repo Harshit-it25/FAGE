@@ -1,0 +1,13 @@
+{
+  "overall_c_estimate": 0.75,
+  "c_estimate": 0.75,
+  "spy_threshold": 0.015,
+  "closed_loop_feedback_counts": {
+    "True Positive": 60,
+    "False Positive": 0,
+    "Mule Ring": 0,
+    "Other": 0
+  },
+  "last_recalibration_timestamp": "2026-08-11T11:54:13.765772+00:00Z",
+  "last_tuning_timestamp": "2026-08-11T11:54:14.037660+00:00Z"
+}

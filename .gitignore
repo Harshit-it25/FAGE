@@ -1,0 +1,27 @@
+# Environment and Dependencies
+node_modules/
+venv/
+__pycache__/
+*.pyc
+
+# Data and Databases
+DataSet.csv
+*.db
+*.sqlite3
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Env variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

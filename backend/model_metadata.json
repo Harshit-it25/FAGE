@@ -1,0 +1,24 @@
+{
+  "model_name": "XGBoost",
+  "model_version": "1.0.0",
+  "artifact_path": "models/production/xgboost_classifier.pkl",
+  "feature_count": 353,
+  "threshold": 0.60,
+  "leakage_features_removed": 25,
+  "evaluation_method": "5-fold stratified cross-validation / Holdout",
+  "cv_folds": 5,
+  "metrics": {
+    "cv_precision": 0.8466,
+    "cv_recall": 0.7897,
+    "cv_f1": 0.8124,
+    "cv_roc_auc": 0.9740,
+    "holdout_precision": 0.9000,
+    "holdout_recall": 0.7500,
+    "holdout_f1": 0.8182,
+    "holdout_pr_auc": 0.8576
+  },
+  "training_dataset_identifier": "Problem Statement 2 Dataset (Cleaned)",
+  "organizer_validation": "UNKNOWN",
+  "model_selection_reason": "Selected clean XGBoost pipeline after addressing target leakage. Ensemble model discarded due to missing clean evaluations.",
+  "created_at": "2026-08-09T00:00:00Z"
+}
