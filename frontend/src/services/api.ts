@@ -321,18 +321,23 @@ export interface NetworkIntelligence {
   suspicious_neighbor_count: Record<string, number>;
   network_depth: number;
 }
+export interface RelatedEntity {
+  alert_id: string;
+  transaction_id: string;
+  sender_id?: string;
+  receiver_id?: string;
+  match_reasons: string[];
+  hop_distance?: number;
+  bridge_entity?: string | null;
+  amount?: number;
+  severity?: string;
+}
 
 export interface CorrelateResponse {
   target_alert: string;
-  related_entities: Array<{
-    alert_id: string;
-    transaction_id: string;
-    match_reasons: string[];
-    hop_distance?: number;
-    bridge_entity?: string | null;
-    amount?: number;
-    severity?: string;
-  }>;
+  target_sender?: string;
+  target_receiver?: string;
+  related_entities: RelatedEntity[];
   graph_summary?: {
     cluster_size: number;
     structuring_detected: boolean;

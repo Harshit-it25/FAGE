@@ -49,119 +49,129 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
       const labelColor = isDark ? '#ffffff' : '#0f1c22';
       const edgeColor = isDark ? '#4cd7f6' : '#006880';
       const edgeColorDim = isDark ? '#64748b' : '#6f8a97';
+      // Helper to add Account nodes
+      const addAccountNode = (id: string, labelPrefix: string) => {
+        if (!nodesMap.has(id)) {
+          const isUnknown = !id || id.includes('SENDER') || id.includes('RECEIVER');
+          const displayId = isUnknown ? 'Data Unavailable' : id;
+          nodesMap.set(id, {
+            id,
+            label: `${labelPrefix}:\n${displayId}`,
+            color: { background: isDark ? '#06b6d4' : '#006880', border: isDark ? '#00424f' : '#003640' },
+            font: { color: '#ffffff', face: 'monospace', size: 11, bold: true },
+            shape: 'ellipse',
+            shadow: true,
+            title: isUnknown ? 'Simulation mode — relational fields not provided by source dataset' : `Account: ${displayId}`
+          });
+        }
+      };
 
-      // 1. Central Target Alert Node
+      const targetSenderId = data.target_sender || `${data.target_alert}-SENDER`;
+      const targetReceiverId = data.target_receiver || `${data.target_alert}-RECEIVER`;
+
+      // 1. Central Investigation Event Node
       nodesMap.set(data.target_alert, {
         id: data.target_alert,
-        label: `Target Alert:\n${data.target_alert}`,
+        label: `Flagged Transaction:\n${data.target_alert}`,
         color: { background: '#ef4444', border: '#b91c1c' },
-        font: { color: '#ffffff', face: 'monospace', size: 13, bold: true },
+        font: { color: '#ffffff', face: 'monospace', size: 12, bold: true },
         shape: 'box',
         shadow: true,
-        title: `Target Alert ID: ${data.target_alert} | Focus of Investigation`
+        title: `Investigation Event ID: ${data.target_alert}`
       });
 
-      const addedBridges = new Set<string>();
+      // Connect Target Alert to its sender and receiver
+      addAccountNode(targetSenderId, 'Origin Account');
+      addAccountNode(targetReceiverId, 'Destination Account');
+      
+      edges.push({
+        from: targetSenderId,
+        to: data.target_alert,
+        label: '[INVESTIGATION SIMULATION]\nTransaction Initiation',
+        font: { color: labelColor, size: 9, align: 'middle' },
+        color: { color: edgeColor, opacity: 0.8 },
+        arrows: { to: { enabled: true, scaleFactor: 0.5 } }
+      });
+      edges.push({
+        from: data.target_alert,
+        to: targetReceiverId,
+        label: '[INVESTIGATION SIMULATION]\nFund Transfer',
+        font: { color: labelColor, size: 9, align: 'middle' },
+        color: { color: edgeColor, opacity: 0.8 },
+        arrows: { to: { enabled: true, scaleFactor: 0.5 } }
+      });
 
-      // 2. Map Related Entities & Bridges
+      // 2. Map Related Entities
       if (data.related_entities && data.related_entities.length > 0) {
         data.related_entities.forEach((entity) => {
           const amtText = entity.amount ? `\n₹${entity.amount.toLocaleString('en-IN')}` : '';
-          const hopText = entity.hop_distance === 2 ? ' [2-Hop]' : ' [1-Hop]';
           
           nodesMap.set(entity.alert_id, {
             id: entity.alert_id,
-            label: `${entity.alert_id}${hopText}\nSeverity: ${entity.severity}${amtText}`,
+            label: `Investigation Event:\n${entity.alert_id}${amtText}`,
             color: {
               background: entity.severity === 'Critical' ? '#f97316' : entity.severity === 'High' ? '#eab308' : '#3b82f6',
               border: isDark ? '#334155' : '#cbd5e1'
             },
             font: { color: '#ffffff', face: 'monospace', size: 11 },
-            shape: 'ellipse',
+            shape: 'box',
             shadow: true,
-            title: `Alert: ${entity.alert_id} | Severity: ${entity.severity} | Match: ${(entity.match_reasons || []).join('; ')}`
+            title: `Event: ${entity.alert_id} | Match: ${(entity.match_reasons || []).join('; ')}`
           });
 
-          if (entity.hop_distance === 2 && entity.bridge_entity) {
-            if (!addedBridges.has(entity.bridge_entity)) {
-              addedBridges.add(entity.bridge_entity);
-              nodesMap.set(entity.bridge_entity, {
-                id: entity.bridge_entity,
-                label: `Bridge:\n${entity.bridge_entity}`,
+          const senderId = entity.sender_id || `${entity.alert_id}-SENDER`;
+          const receiverId = entity.receiver_id || `${entity.alert_id}-RECEIVER`;
+          addAccountNode(senderId, 'Origin Account');
+          addAccountNode(receiverId, 'Destination Account');
+
+          edges.push({
+            from: senderId,
+            to: entity.alert_id,
+            label: '[SIMULATION]\nTxn Initiation',
+            font: { color: labelColor, size: 9, align: 'middle' },
+            color: { color: edgeColorDim, opacity: 0.8 },
+            arrows: { to: { enabled: true, scaleFactor: 0.5 } }
+          });
+          edges.push({
+            from: entity.alert_id,
+            to: receiverId,
+            label: '[SIMULATION]\nFund Transfer',
+            font: { color: labelColor, size: 9, align: 'middle' },
+            color: { color: edgeColorDim, opacity: 0.8 },
+            arrows: { to: { enabled: true, scaleFactor: 0.5 } }
+          });
+
+          // Draw explicit simulated behavioral links if bridge_entity is a behavioral heuristic
+          if (entity.bridge_entity && (entity.bridge_entity.includes('PATTERN') || entity.bridge_entity.includes('BAND'))) {
+            const bridgeId = entity.bridge_entity;
+            if (!nodesMap.has(bridgeId)) {
+              nodesMap.set(bridgeId, {
+                id: bridgeId,
+                label: `Potential Network Pattern:\n${bridgeId.replace(/_/g, ' ')}`,
                 color: { background: '#a855f7', border: '#7e22ce' },
                 font: { color: '#ffffff', face: 'monospace', size: 11, bold: true },
                 shape: 'diamond',
                 shadow: true,
-                title: `Intermediary Mule/Bridge Account: ${entity.bridge_entity}`
+                title: `[INVESTIGATION SIMULATION] Heuristic Match`
               });
               edges.push({
                 from: data.target_alert,
-                to: entity.bridge_entity,
-                label: 'Hop 1: Shared Intermediary / Ring',
+                to: bridgeId,
+                label: '[SIMULATION]\nPattern Match',
                 font: { color: isDark ? '#c084fc' : '#7e22ce', size: 10, align: 'middle' },
                 color: { color: isDark ? '#a855f7' : '#7e22ce', opacity: 0.9 },
-                dashes: false,
-                width: 2,
-                arrows: { to: { enabled: true, scaleFactor: 0.6 } }
+                dashes: true
               });
             }
             edges.push({
-              from: entity.bridge_entity,
+              from: bridgeId,
               to: entity.alert_id,
-              label: `Hop 2: ${(entity.match_reasons && entity.match_reasons[0])?.slice(0, 35) || 'Chain'}...`,
+              label: `[SIMULATION]\n${(entity.match_reasons && entity.match_reasons[0])?.slice(0, 35) || 'Match'}...`,
               font: { color: labelColor, size: 10, align: 'middle' },
               color: { color: edgeColorDim, opacity: 0.8 },
-              dashes: true,
-              arrows: { to: { enabled: true, scaleFactor: 0.5 } }
-            });
-          } else {
-            edges.push({
-              from: data.target_alert,
-              to: entity.alert_id,
-              label: (entity.match_reasons || []).join(', ').slice(0, 40),
-              font: { color: labelColor, size: 10, align: 'middle' },
-              color: { color: edgeColor, opacity: 0.85 },
-              dashes: true,
-              width: 1.5,
-              arrows: { to: { enabled: true, scaleFactor: 0.5 } }
+              dashes: true
             });
           }
-        });
-      } else {
-        // Fallback: If no direct multi-hop links exist, render structural origin/destination ring nodes so graph is informative
-        const originNode = `${data.target_alert}-SENDER`;
-        const destNode = `${data.target_alert}-RECEIVER`;
-        nodesMap.set(originNode, {
-          id: originNode,
-          label: `Origin Account:\nSender Profile`,
-          color: { background: isDark ? '#06b6d4' : '#006880', border: isDark ? '#00424f' : '#003640' },
-          font: { color: '#ffffff', face: 'monospace', size: 11, bold: true },
-          shape: 'ellipse',
-          shadow: true
-        });
-        nodesMap.set(destNode, {
-          id: destNode,
-          label: `Destination Account:\nBeneficiary Profile`,
-          color: { background: isDark ? '#e89337' : '#8c4a00', border: isDark ? '#5b3200' : '#2d1600' },
-          font: { color: '#ffffff', face: 'monospace', size: 11, bold: true },
-          shape: 'ellipse',
-          shadow: true
-        });
-        edges.push({
-          from: originNode,
-          to: data.target_alert,
-          label: 'Tx Origin Inflow',
-          font: { color: labelColor, size: 10, align: 'middle' },
-          color: { color: edgeColor, opacity: 0.8 },
-          arrows: { to: { enabled: true, scaleFactor: 0.6 } }
-        });
-        edges.push({
-          from: data.target_alert,
-          to: destNode,
-          label: 'Tx Outflow Destination',
-          font: { color: labelColor, size: 10, align: 'middle' },
-          color: { color: edgeColor, opacity: 0.8 },
-          arrows: { to: { enabled: true, scaleFactor: 0.6 } }
         });
       }
 

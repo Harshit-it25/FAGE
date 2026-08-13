@@ -801,6 +801,8 @@ def correlate_alert(alert_id: str, user: AuthUser = Depends(verify_api_key), db:
             related.append({
                 "alert_id": a["id"],
                 "transaction_id": a["transaction_id"],
+                "sender_id": a.get("sender_id"),
+                "receiver_id": a.get("receiver_id"),
                 "match_reasons": reasons,
                 "hop_distance": 1,
                 "bridge_entity": acc if acc in bridge_nodes else None,
@@ -821,6 +823,8 @@ def correlate_alert(alert_id: str, user: AuthUser = Depends(verify_api_key), db:
             related.append({
                 "alert_id": a["id"],
                 "transaction_id": a["transaction_id"],
+                "sender_id": a.get("sender_id"),
+                "receiver_id": a.get("receiver_id"),
                 "match_reasons": reasons,
                 "hop_distance": 2,
                 "bridge_entity": bridge_acc,
@@ -862,6 +866,8 @@ def correlate_alert(alert_id: str, user: AuthUser = Depends(verify_api_key), db:
             related.append({
                 "alert_id": a["id"],
                 "transaction_id": a["transaction_id"],
+                "sender_id": a.get("sender_id"),
+                "receiver_id": a.get("receiver_id"),
                 "match_reasons": reasons,
                 "hop_distance": 2 if "Hop 2" in reasons[0] else 1,
                 "bridge_entity": "NEAR_THRESHOLD_AMOUNT_BAND_MATCH" if "Structuring" in reasons[0] else ("HIGH_VELOCITY_PATTERN_MATCH" if "Velocity" in reasons[0] else None),
@@ -929,6 +935,8 @@ def correlate_alert(alert_id: str, user: AuthUser = Depends(verify_api_key), db:
 
     result = {
         "target_alert": alert_id,
+        "target_sender": target_sender,
+        "target_receiver": target_receiver,
         "related_entities": related,
         "graph_summary": {
             "cluster_size": len(cluster_alerts),
