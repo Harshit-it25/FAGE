@@ -26,8 +26,8 @@ def seed_real_data():
     if target_col not in df.columns:
         target_col = [c for c in df.columns if c.lower() == "f3924"][0]
         
-    frauds = df[df[target_col] == 1].sample(min(20, (df[target_col] == 1).sum()), random_state=42)
-    legits = df[df[target_col] == 0].sample(130, random_state=42)
+    frauds = df[df[target_col] == 1].sample(min(100, (df[target_col] == 1).sum()), random_state=42)
+    legits = df[df[target_col] == 0].sample(900, random_state=42)
     sample_df = pd.concat([frauds, legits]).sample(frac=1, random_state=42).reset_index(drop=True)
     
     print(f"Sampled {len(sample_df)} real rows. Generating scorecards & alerts...")
