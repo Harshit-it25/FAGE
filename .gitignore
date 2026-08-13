@@ -6,8 +6,6 @@ __pycache__/
 
 # Data and Databases
 DataSet.csv
-*.db
-*.sqlite3
 
 # Logs
 npm-debug.log*

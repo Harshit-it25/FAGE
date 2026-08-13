@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 COPY train_models.py .
 COPY models/ ./models/
+COPY fage_alerts*.db ./
 
 # Create data directory for SQLite
 RUN mkdir -p /app/data
