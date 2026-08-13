@@ -96,7 +96,7 @@ def seed_real_data():
             timestamp=ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
             assigned_to="System Operator" if status != "Open" else "Unassigned",
             logs=json.dumps(logs_trail),
-            features=json.dumps(req_data),
+            features=json.dumps({"account_age_days": random.randint(0, 365), "is_international": random.choice([True, False])}),
             explainability=json.dumps(scorecard["explainability"]),
             _ts=ts.timestamp(),
             triage_action="Escalate" if final_score > 75 else "Review",
