@@ -222,7 +222,6 @@ class AlertIngestRequest(BaseModel):
     receiver_id: Optional[str] = Field("ACC-UNKN", max_length=128, description="Receiver account.")
     amount: float = Field(..., ge=0.0, le=1_000_000_000, description="Transaction amount.")
     risk_score: int = Field(..., ge=0, le=100, description="Mule risk score out of 100.")
-    risk_tier: Optional[str] = Field(None, max_length=32, description="Risk tier, mapped automatically if null.")
     severity: Optional[str] = Field(None, max_length=32, description="Severity rating, mapped automatically if null.")
     status: Optional[str] = Field("Open", max_length=32, description="Alert status state: Open, Investigating, Escalated, Closed.")
     reason: Optional[str] = Field("Manual external legacy rule sync ingestion.", max_length=2000, description="Alert rationale.")

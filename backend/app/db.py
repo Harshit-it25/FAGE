@@ -33,7 +33,6 @@ class AlertModel(Base):
     receiver_id = Column(String)
     amount = Column(Float)
     risk_score = Column(Integer)
-    risk_tier = Column(String)
     severity = Column(String)
     status = Column(String, index=True)
     reason = Column(Text)
@@ -60,7 +59,6 @@ class AlertModel(Base):
             "receiver_id": self.receiver_id,
             "amount": self.amount,
             "risk_score": self.risk_score,
-            "risk_tier": self.risk_tier,
             "severity": self.severity,
             "status": self.status,
             "reason": self.reason,

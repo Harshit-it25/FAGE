@@ -409,8 +409,7 @@ export default function InvestigationWorkbenchView({
                     <div>
                       <div className="text-[10px] uppercase font-bold text-on-surface-variant tracking-widest mb-1">Risk Score</div>
                       <div className="text-3xl font-black text-on-surface">{summary.risk_score_pct}%</div>
-                      <div className="text-xs font-bold text-on-surface-variant">{summary.risk_tier}</div>
-                    </div>
+                                          </div>
                     <div className="flex-1 min-w-[220px]">
                       <div className="text-[10px] uppercase font-bold text-on-surface-variant tracking-widest mb-2">
                         Risk Decomposition
@@ -500,7 +499,7 @@ export default function InvestigationWorkbenchView({
                   <div key={c.alert_id} className="flex items-center justify-between bg-surface-container-low border border-outline-variant rounded-lg p-3 text-xs">
                     <div className="flex items-center gap-3">
                       <span className="mono-text font-bold text-on-surface">{c.alert_id}</span>
-                      <span className="text-on-surface-variant">{c.risk_tier} · {c.status}</span>
+                      <span className="text-on-surface-variant">{c.status}</span>
                     </div>
                     <span className="font-black text-primary">{c.similarity_pct}% similar</span>
                   </div>

@@ -15,6 +15,8 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { Alert, SystemTheme } from '../types';
+import { AlertInfo } from '../services/api';
+import { useDashboardSummary, useSystemConfig } from '../hooks/useFageApi';
 import { BatchUpload } from './BatchUpload';
 import { formatINR } from '../utils/format';
 
@@ -27,15 +29,15 @@ interface RiskExplorerViewProps {
 export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskExplorerViewProps) {
   const isDark = theme === 'analytics';
   const [searchQuery, setSearchQuery] = useState('');
-  const [riskFilter, setRiskFilter] = useState('All');
   const [timeframe, setTimeframe] = useState('7 Days');
   const [currentPage, setCurrentPage] = useState(1);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [minScore, setMinScore] = useState<number | ''>('');
   const [maxScore, setMaxScore] = useState<number | ''>('');
+  const { config } = useSystemConfig();
 
   const handleExportCSV = () => {
-    const headers = ['Account ID', 'Risk Score', 'Risk Tier', 'Confidence', 'Alert Severity'];
+    const headers = ['Account ID', 'Risk Score', 'Confidence', 'Alert Severity'];
     const rows = filteredAlerts.map(a => [
       a.accountNumber,
       a.riskScore,
@@ -70,20 +72,12 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
         a.accountNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
         a.receiverAccountId.toLowerCase().includes(searchQuery.toLowerCase());
 
-      // Risk level filter matching
-      const matchesRisk = 
-        riskFilter === 'All' ||
-        (riskFilter === 'Critical' && a.riskScore >= 90) ||
-        (riskFilter === 'High' && a.riskScore >= 80 && a.riskScore < 90) ||
-        (riskFilter === 'Medium' && a.riskScore >= 60 && a.riskScore < 80) ||
-        (riskFilter === 'Low' && a.riskScore < 60);
-
       const matchesMin = minScore === '' || a.riskScore >= minScore;
       const matchesMax = maxScore === '' || a.riskScore <= maxScore;
 
-      return matchesSearch && matchesRisk && matchesMin && matchesMax;
+      return matchesSearch && matchesMin && matchesMax;
     });
-  }, [alerts, searchQuery, riskFilter, minScore, maxScore]);
+  }, [alerts, searchQuery, minScore, maxScore]);
 
   // Pagination bounds
   const itemsPerPage = 5;
@@ -132,33 +126,6 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
     }
   };
 
-  const getRiskTierBadge = (score: number) => {
-    if (score >= 90) {
-      return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-[#ffdad6] text-[#93000a] dark:bg-red-950/40 dark:text-red-300 border border-red-500/15">
-          Critical
-        </span>
-      );
-    } else if (score >= 80) {
-      return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-[#ffdbce] text-[#802a00] dark:bg-amber-950/40 dark:text-amber-300 border border-amber-500/15">
-          High
-        </span>
-      );
-    } else if (score >= 60) {
-      return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-700/10">
-          Medium
-        </span>
-      );
-    } else {
-      return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-[#f4f2fc] text-slate-500 dark:bg-black/20 dark:text-slate-400 border border-slate-700/5">
-          Low
-        </span>
-      );
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -228,28 +195,6 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
         </div>
 
         <div className="w-full md:w-auto flex flex-wrap sm:flex-nowrap gap-3">
-          <div className="flex flex-col gap-1.5 min-w-[130px]">
-            <label className="text-[10px] uppercase font-bold tracking-wider text-slate-400 font-mono">Risk Filter</label>
-            <div className="relative">
-              <select
-                value={riskFilter}
-                onChange={(e) => { setRiskFilter(e.target.value); setCurrentPage(1); }}
-                className={`w-full appearance-none font-sans text-xs px-3 py-2.5 pr-8 rounded-lg outline-none cursor-pointer border ${
-                  isDark 
-                    ? 'bg-black/20 border-slate-800 text-slate-300 focus:border-cyan-500' 
-                    : 'bg-white border-[#c4c5d5] text-slate-700 focus:border-[#1e40af]'
-                }`}
-              >
-                <option value="All">Risk Tier: All</option>
-                <option value="Critical">Critical</option>
-                <option value="High">High</option>
-                <option value="Medium">Medium</option>
-                <option value="Low">Low</option>
-              </select>
-              <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
-            </div>
-          </div>
-
           <div className="flex flex-col gap-1.5 min-w-[140px]">
             <label className="text-[10px] uppercase font-bold tracking-wider text-slate-400 font-mono">Series Period</label>
             <div className="relative">
@@ -343,8 +288,7 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
                 <th className="p-3.5 font-semibold text-slate-400 uppercase tracking-widest font-mono">Account ID</th>
                 <th className="p-3.5 font-semibold text-slate-400 uppercase tracking-widest font-mono">Amount (₹)</th>
                 <th className="p-3.5 font-semibold text-slate-400 uppercase tracking-widest font-mono">Risk Score</th>
-                <th className="p-3.5 font-semibold text-slate-400 uppercase tracking-widest font-mono">Risk Tier</th>
-                <th className="p-3.5 font-semibold text-slate-400 uppercase tracking-widest font-mono">Triage Route</th>
+                                <th className="p-3.5 font-semibold text-slate-400 uppercase tracking-widest font-mono">Triage Route</th>
                 <th className="p-3.5 font-semibold text-slate-400 uppercase tracking-widest font-mono">Confidence</th>
                 <th className="p-3.5 font-semibold text-slate-400 uppercase tracking-widest font-mono">Alert Severity</th>
                 <th className="p-3.5 font-semibold text-slate-400 uppercase tracking-widest font-mono text-right">Actions</th>
@@ -353,7 +297,10 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
             <tbody className="divide-y divide-slate-300/40 dark:divide-slate-800/60">
               {paginatedAlerts.length > 0 ? (
                 paginatedAlerts.map((a) => {
-                  const barColor = a.riskScore >= 90 ? 'bg-red-500' : a.riskScore >= 80 ? 'bg-amber-500' : 'bg-indigo-500';
+                  const highCutoff = config?.high_cutoff ?? 90;
+                  const medCutoff = config?.medium_cutoff ?? 80;
+                  const barColor = a.riskScore >= highCutoff ? 'bg-red-500' : a.riskScore >= medCutoff ? 'bg-amber-500' : 'bg-green-500';
+                  const textColor = a.riskScore >= highCutoff ? 'text-red-500' : a.riskScore >= medCutoff ? 'text-amber-500' : 'text-green-500';
                   
                   return (
                     <tr 
@@ -369,14 +316,13 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
                       <td className="p-3.5 font-mono font-medium text-slate-300">{formatINR(a.transactionAmount)}</td>
                       <td className="p-3.5">
                         <div className="flex items-center gap-2">
-                          <span className={`font-mono font-bold ${a.riskScore >= 80 ? 'text-red-500' : 'text-slate-500'}`}>{a.riskScore.toFixed(1)}</span>
+                          <span className={`font-mono font-bold ${textColor}`}>{a.riskScore.toFixed(1)}</span>
                           <div className="w-16 h-1.5 bg-slate-200 dark:bg-black/30 rounded-full overflow-hidden">
                             <div className={`h-full ${barColor}`} style={{ width: `${a.riskScore}%` }}></div>
                           </div>
                         </div>
                       </td>
-                      <td className="p-3.5 font-semibold">{getRiskTierBadge(a.riskScore)}</td>
-                      <td className="p-3.5">
+                                            <td className="p-3.5">
                         {a.triage_action ? (
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
                             a.triage_action === 'FAST_TRACK_FREEZE'

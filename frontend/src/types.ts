@@ -1,3 +1,8 @@
+export interface SystemConfig {
+  medium_cutoff: number;
+  high_cutoff: number;
+}
+
 export type ViewMode =
   | 'dashboard'
   | 'investigation'
@@ -101,7 +106,6 @@ export interface RiskDecomposition {
 
 export interface InvestigationSummary {
   risk_score_pct: number;
-  risk_tier: string;
   risk_decomposition: RiskDecomposition;
   evidence: InvestigationEvidence[];
   assessment: string;
@@ -130,7 +134,7 @@ export interface NetworkIntelligence {
 export interface SimilarCase {
   alert_id: string;
   similarity_pct: number;
-  risk_tier: string;
+  severity?: string;
   risk_score: number;
   status: string;
   top_shap_drivers: string[];

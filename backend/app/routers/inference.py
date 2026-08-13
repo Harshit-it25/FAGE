@@ -166,7 +166,7 @@ def score_and_evaluate_transaction(request: RiskScoreRequest, user: AuthUser = D
             if not existing:
                 alert_id = f"ALT-{str(uuid.uuid4()).upper()}"
                 
-                reason_summary = scorecard["categorizations"]["risk_tier"] + " Risk Score Card triggered."
+                reason_summary = scorecard["categorizations"]["alert_severity"] + " Severity Risk Score Card triggered."
                 if scorecard["rules_audit"]["triggered_rules_count"] > 0:
                     reasons = [r["reason"] for r in scorecard["rules_audit"]["overrides"]]
                     reason_summary += " Rule Violations detected: " + "; ".join(reasons)
@@ -183,7 +183,6 @@ def score_and_evaluate_transaction(request: RiskScoreRequest, user: AuthUser = D
                     receiver_id=request.receiver_id,
                     amount=request.amount,
                     risk_score=scorecard["scores"]["final_risk_score"],
-                    risk_tier=scorecard["categorizations"]["risk_tier"],
                     severity=scorecard["categorizations"]["alert_severity"],
                     status="Open",
                     reason=reason_summary,
@@ -205,7 +204,7 @@ def score_and_evaluate_transaction(request: RiskScoreRequest, user: AuthUser = D
                     priority_tier=(
                         scorecard["categorizations"]["triage_routing"]["priority_tier"]
                         if isinstance(scorecard.get("categorizations"), dict) and isinstance(scorecard["categorizations"].get("triage_routing"), dict)
-                        else scorecard["categorizations"]["risk_tier"]
+                        else scorecard["categorizations"]["alert_severity"]
                     ),
                     pu_probability=scorecard["scores"].get("base_ml_probability")
                 )
@@ -223,7 +222,7 @@ def score_and_evaluate_transaction(request: RiskScoreRequest, user: AuthUser = D
                         action="alert.create",
                         entity_type="alert",
                         entity_id=alert_id,
-                        detail=f"Alert created from /risk-score: risk_tier={scorecard['categorizations']['risk_tier']}, "
+                        detail=f"Alert created from /risk-score: severity={scorecard['categorizations']['alert_severity']}, "
                                f"score={scorecard['scores']['final_risk_score']}, "
                                f"triage_action={new_alert.triage_action}",
                         auth_method=user.auth_method,

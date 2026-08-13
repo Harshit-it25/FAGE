@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import { SystemConfig } from '../types';
 
 // Always use the Vite dev proxy at /api — this avoids all browser CORS issues.
 // The proxy (vite.config.ts) forwards /api/* → http://localhost:8000/* server-side,
@@ -125,7 +126,6 @@ export interface ScorecardResponse {
       };
     };
     categorizations: {
-      risk_tier: 'Low' | 'Medium' | 'High' | 'Critical';
       alert_severity: 'Low' | 'Medium' | 'High' | 'Critical';
       action_decision: 'Approve' | 'Review' | 'Escalate' | 'Block';
       triage_routing?: {
@@ -250,7 +250,6 @@ export interface AlertInfo {
   receiver_id: string;
   amount: number;
   risk_score: number;
-  risk_tier: 'Low' | 'Medium' | 'High' | 'Critical';
   severity: 'Low' | 'Medium' | 'High' | 'Critical';
   status: 'Open' | 'Investigating' | 'Escalated' | 'Closed';
   reason: string;
@@ -298,7 +297,6 @@ export interface RiskDecomposition {
 
 export interface InvestigationSummary {
   risk_score_pct: number;
-  risk_tier: string;
   risk_decomposition: RiskDecomposition;
   evidence: InvestigationEvidence[];
   assessment: string;
@@ -330,10 +328,10 @@ export interface CorrelateResponse {
     alert_id: string;
     transaction_id: string;
     match_reasons: string[];
-    risk_tier: string;
     hop_distance?: number;
     bridge_entity?: string | null;
     amount?: number;
+    severity?: string;
   }>;
   graph_summary?: {
     cluster_size: number;
@@ -351,7 +349,6 @@ export interface CorrelateResponse {
 export interface SimilarCase {
   alert_id: string;
   similarity_pct: number;
-  risk_tier: string;
   risk_score: number;
   status: string;
   top_shap_drivers: string[];
@@ -698,6 +695,11 @@ export const fageApi = {
 
   resetDPGovernanceBudget: async (max_epsilon?: number): Promise<DPResetResponse> => {
     const response = await apiClient.post('/governance/dp-reset', max_epsilon ? { max_epsilon } : {});
+    return response.data;
+  },
+
+  getConfig: async (): Promise<SystemConfig> => {
+    const response = await apiClient.get('/config');
     return response.data;
   },
 };

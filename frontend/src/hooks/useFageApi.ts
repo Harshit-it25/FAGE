@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { SystemConfig } from '../types';
 import {
   fageApi,
   DashboardTelemetryResponse,
@@ -298,3 +299,33 @@ export function useModelRegistry() {
 }
 
 
+
+/**
+ * Custom Hook: Fetches system configuration (e.g. cutoffs)
+ */
+export function useSystemConfig() {
+  const [config, setConfig] = useState<any>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    fageApi.getConfig()
+      .then(data => {
+        if (mounted) {
+          setConfig(data);
+          setLoading(false);
+        }
+      })
+      .catch(err => {
+        if (mounted) {
+          console.error("Failed to fetch system config:", err);
+          setError(err.message || 'Error fetching system config');
+          setLoading(false);
+        }
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  return { config, loading, error };
+}

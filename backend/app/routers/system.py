@@ -85,3 +85,11 @@ def health_check():
         "model_ready": risk_engine.is_production_ready
     }
 
+@router.get("/config", tags=["System"])
+def get_config():
+    medium_cutoff, high_cutoff = _active_alert_score_cutoffs()
+    return {
+        "medium_cutoff": medium_cutoff,
+        "high_cutoff": high_cutoff
+    }
+

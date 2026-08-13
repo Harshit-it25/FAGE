@@ -162,7 +162,7 @@ def list_alerts_queue(
 @router.post("/alerts", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
 def ingest_simulated_alert(payload: AlertIngestRequest, db: Session = Depends(get_db)):
     score = payload.risk_score
-    _, tier, severity, _ = risk_engine.map_probability_to_scorecard(score / 100.0)
+    _, severity, _ = risk_engine.map_probability_to_scorecard(score / 100.0)
 
     permitted_states = {"Open", "Investigating", "Escalated", "Closed"}
     status_state = payload.status or "Open"
@@ -186,7 +186,6 @@ def ingest_simulated_alert(payload: AlertIngestRequest, db: Session = Depends(ge
         receiver_id=payload.receiver_id,
         amount=payload.amount,
         risk_score=score,
-        risk_tier=payload.risk_tier or tier,
         severity=payload.severity or severity,
         status=status_state.capitalize(),
         reason=payload.reason,
@@ -196,7 +195,7 @@ def ingest_simulated_alert(payload: AlertIngestRequest, db: Session = Depends(ge
         features=json.dumps({}),
         _ts=time.time(),
         triage_action="PRIORITY_MANUAL_REVIEW" if score >= _active_alert_score_cutoffs()[0] else "STANDARD_MONITORING",
-        priority_tier=payload.risk_tier or tier,
+        priority_tier=payload.severity or severity,
         pu_probability=float(score) / 100.0
     )
 
@@ -340,7 +339,7 @@ async def generate_sar_report(alert_id: str, user: AuthUser = Depends(verify_api
 
     graph_evidence_rows = []
     for r in related[:6]:
-        graph_evidence_rows.append(f"- **Linked Alert [{r['alert_id']}]** (Hop {r['hop_distance']}) | Tier: {r['risk_tier']} | Reason: {', '.join(r['match_reasons'])}")
+        graph_evidence_rows.append(f"- **Linked Alert [{r['alert_id']}]** (Hop {r['hop_distance']}) | Reason: {', '.join(r['match_reasons'])}")
     graph_evidence_str = "\n".join(graph_evidence_rows) if graph_evidence_rows else "- No multi-hop linked accounts in active cluster."
 
     raw_hash_payload = f"{fincen_id}:{alert_id}:{alert.risk_score}:{alert.transaction_id}:{ts_now}:{llm_narrative}"
@@ -362,7 +361,7 @@ async def generate_sar_report(alert_id: str, user: AuthUser = Depends(verify_api
 * **Account Number:** `{alert.sender_id}`
 * **Origin / Destination:** `{alert.sender_id or 'Unknown'}` ➔ `{alert.receiver_id or 'Unknown'}`
 * **Transaction Amount:** `₹{alert.amount:,.2f}` (`${(alert.amount or 0)/_INR_USD_RATE:,.2f} USD, approx @ {_INR_USD_RATE}`)
-* **Risk Score / Tier:** `{alert.risk_score}` / **`{alert.risk_tier}`**
+* **Risk Score** `{alert.risk_score}`
 * **Assigned Investigator:** `{alert.assigned_to}`
 
 ---
@@ -449,13 +448,13 @@ async def generate_plain_language_explanation(alert_id: str, user: AuthUser = De
     measured — do not accuse the account holder of wrongdoing, describe this as a pattern
     that warrants review.
 
-    Risk tier: {alert_dict.get('risk_tier', 'Unknown')}
+    Severity: {alert_dict.get('severity', 'Unknown')}
     Risk score: {alert_dict.get('risk_score', 'Unknown')}
     Key risk drivers: {json.dumps(alert_dict.get('key_risk_drivers', []), indent=2)}
     """
 
     fallback_text = (
-        f"This account was scored at {alert_dict.get('risk_tier', 'an elevated')} risk "
+        f"This account was scored at {alert_dict.get('severity', 'an elevated')} risk "
         f"(score: {alert_dict.get('risk_score', 'N/A')}). Automated plain-language summary "
         f"unavailable right now — please refer to the key risk drivers list for this alert."
     )
@@ -625,9 +624,9 @@ def _compute_graph_intelligence(
                 betw_cent = {n: 0.0 for n in sub.nodes()}
 
             high_risk_accounts = {
-                a.get("sender_id") for a in alerts_copy if a.get("risk_tier") in ("Critical", "High")
+                a.get("sender_id") for a in alerts_copy if a.get("severity") in ("Critical", "High")
             } | {
-                a.get("receiver_id") for a in alerts_copy if a.get("risk_tier") in ("Critical", "High")
+                a.get("receiver_id") for a in alerts_copy if a.get("severity") in ("Critical", "High")
             }
 
             for n in target_nodes:
@@ -711,7 +710,6 @@ def similar_cases(alert_id: str, top_n: int = 5, user: AuthUser = Depends(verify
         similar_cases_out.append({
             "alert_id": c.id,
             "similarity_pct": round(sim * 100, 1),
-            "risk_tier": c.risk_tier,
             "risk_score": c.risk_score,
             "status": c.status,  # real recorded status -- never a fabricated outcome label
             "top_shap_drivers": [d.get("feature") for d in expl.get("key_risk_drivers", [])[:2]],
@@ -757,7 +755,6 @@ def correlate_alert(alert_id: str, user: AuthUser = Depends(verify_api_key), db:
             "transaction_id": a.transaction_id,
             "sender_id": a.sender_id,
             "receiver_id": a.receiver_id,
-            "risk_tier": a.risk_tier,
             "amount": a.amount,
             "timestamp": a._ts,
             "features": a_dict.get("features", {})
@@ -805,7 +802,6 @@ def correlate_alert(alert_id: str, user: AuthUser = Depends(verify_api_key), db:
                 "alert_id": a["id"],
                 "transaction_id": a["transaction_id"],
                 "match_reasons": reasons,
-                "risk_tier": a["risk_tier"],
                 "hop_distance": 1,
                 "bridge_entity": acc if acc in bridge_nodes else None,
                 "amount": a["amount"]
@@ -826,7 +822,6 @@ def correlate_alert(alert_id: str, user: AuthUser = Depends(verify_api_key), db:
                 "alert_id": a["id"],
                 "transaction_id": a["transaction_id"],
                 "match_reasons": reasons,
-                "risk_tier": a["risk_tier"],
                 "hop_distance": 2,
                 "bridge_entity": bridge_acc,
                 "amount": a["amount"]
@@ -839,13 +834,13 @@ def correlate_alert(alert_id: str, user: AuthUser = Depends(verify_api_key), db:
     # a coincidental amount band or velocity threshold. Relabeled to describe the actual
     # heuristic, not a dramatized entity name.
     target_amt = target.get("amount") or 0
-    target_tier = target.get("risk_tier") or "Medium"
+    target_tier = target.get("severity") or "Medium"
     for a in alerts_copy:
         if a["id"] in visited_alerts:
             continue
         reasons = []
         a_amt = a.get("amount") or 0
-        a_tier = a.get("risk_tier") or "Medium"
+        a_tier = a.get("severity") or "Medium"
         
         # Smurfing band check (e.g., both ₹9,000-₹9,999 near-threshold structuring)
         if _COMPLIANCE_RULES["structuring_band_min"] <= target_amt <= _COMPLIANCE_RULES["structuring_band_max"] and _COMPLIANCE_RULES["structuring_band_min"] <= a_amt <= _COMPLIANCE_RULES["structuring_band_max"]:
@@ -868,7 +863,6 @@ def correlate_alert(alert_id: str, user: AuthUser = Depends(verify_api_key), db:
                 "alert_id": a["id"],
                 "transaction_id": a["transaction_id"],
                 "match_reasons": reasons,
-                "risk_tier": a["risk_tier"],
                 "hop_distance": 2 if "Hop 2" in reasons[0] else 1,
                 "bridge_entity": "NEAR_THRESHOLD_AMOUNT_BAND_MATCH" if "Structuring" in reasons[0] else ("HIGH_VELOCITY_PATTERN_MATCH" if "Velocity" in reasons[0] else None),
                 "amount": a["amount"]
@@ -909,7 +903,6 @@ def correlate_alert(alert_id: str, user: AuthUser = Depends(verify_api_key), db:
                 "confidence_interval_90": stored_expl.get("confidence_interval_90") or {},
             },
             "categorizations": {
-                "risk_tier": target_row.risk_tier,
                 "action_decision": target_row.priority_tier,
                 "triage_routing": {
                     "triage_action": target_row.triage_action,

@@ -64,7 +64,7 @@ def seed_real_data():
         
         alert_id = f"ALT-{str(uuid.uuid4()).upper()}"
         
-        reason_summary = scorecard["categorizations"]["risk_tier"] + " Risk Score Card triggered."
+        reason_summary = scorecard["categorizations"]["alert_severity"] + " Severity Risk Score Card triggered."
         if scorecard["rules_audit"]["triggered_rules_count"] > 0:
             reasons = [r["reason"] for r in scorecard["rules_audit"]["overrides"]]
             reason_summary += " Rule Violations detected: " + "; ".join(reasons)
@@ -90,7 +90,6 @@ def seed_real_data():
             receiver_id=receiver_id,
             amount=amount,
             risk_score=final_score,
-            risk_tier=scorecard["categorizations"]["risk_tier"],
             severity=scorecard["categorizations"]["alert_severity"],
             status=status,
             reason=reason_summary,

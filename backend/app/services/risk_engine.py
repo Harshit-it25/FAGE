@@ -319,9 +319,9 @@ class FAGERiskEngine:
         self.is_production_ready = False
         logger.info("Fallback modeling proxies loaded — NOT production ready, /predict will correctly refuse to serve.")
 
-    def map_probability_to_scorecard(self, probability: float, decision_threshold: Optional[float] = None) -> Tuple[int, str, str, str]:
+    def map_probability_to_scorecard(self, probability: float, decision_threshold: Optional[float] = None) -> Tuple[int, str, str]:
         """
-        Maps a raw probability to a 0-100 display score plus a tier/severity/decision.
+        Maps a raw probability to a 0-100 display score plus a severity/decision.
 
         decision_threshold: the model's own cost-optimal probability threshold (from
         per_model_cost_thresholds.json). The decision boundary is anchored to THIS, not to a
@@ -340,15 +340,15 @@ class FAGERiskEngine:
             thr = 1e-6
 
         if prob_bounded < 0.5 * thr:
-            tier, severity, decision = "Low", "Low", "Approve"
+            severity, decision = "Low", "Approve"
         elif prob_bounded < thr:
-            tier, severity, decision = "Medium", "Medium", "Review"
+            severity, decision = "Medium", "Review"
         elif prob_bounded < 5.0 * thr:
-            tier, severity, decision = "High", "High", "Escalate"
+            severity, decision = "High", "Escalate"
         else:
-            tier, severity, decision = "Critical", "Critical", "Block"
+            severity, decision = "Critical", "Block"
 
-        return score, tier, severity, decision
+        return score, severity, decision
 
     def evaluate_heuristic_overrides(self, raw_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
         overrides = []
@@ -528,13 +528,12 @@ class FAGERiskEngine:
         # 3. Formulate pure ML risk indicators, anchored to THIS model's own cost-optimal
         # threshold (not a fixed score cutoff -- see map_probability_to_scorecard docstring).
         active_threshold = self.per_model_thresholds.get(self.default_model_name.lower())
-        ml_score, ml_tier, ml_severity, ml_decision = self.map_probability_to_scorecard(prob, active_threshold)
+        ml_score, ml_severity, ml_decision = self.map_probability_to_scorecard(prob, active_threshold)
         
         # 4. Process deterministic compliance overrides
         overrides = self.evaluate_heuristic_overrides(raw_payload)
         
         final_score = ml_score
-        final_tier = ml_tier
         final_severity = ml_severity
         final_decision = ml_decision
         
@@ -544,10 +543,9 @@ class FAGERiskEngine:
             max_rule = max(overrides, key=lambda x: x["trigger_score"])
             if max_rule["trigger_score"] > final_score:
                 final_score = max_rule["trigger_score"]
-                final_tier = max_rule["tier_enforcement"]
                 final_severity = max_rule["alert_severity_enforcement"]
                 
-                _, _, _, final_decision = self.map_probability_to_scorecard(final_score / 100.0, active_threshold)
+                _, _, final_decision = self.map_probability_to_scorecard(final_score / 100.0, active_threshold)
                 logger.info(f"Risk indicators elevated by override rules: {max_rule['rule_id']}. Upgraded score to {final_score}")
 
         # 5. Extract localized Shapley coordinates
@@ -611,7 +609,6 @@ class FAGERiskEngine:
                 },
             },
             "categorizations": {
-                "risk_tier": final_tier,
                 "alert_severity": final_severity,
                 "action_decision": final_decision,
                 "triage_routing": triage_routing
@@ -682,7 +679,6 @@ class FAGERiskEngine:
         expl = scorecard.get("explainability", {})
         rules = scorecard.get("rules_audit", {})
 
-        tier = cats.get("risk_tier", "Low")
         decision = cats.get("action_decision", "Approve")
         prob_pct = round(scores.get("base_ml_probability", 0.0) * 100, 1)
 
@@ -768,14 +764,14 @@ class FAGERiskEngine:
                     )
                 })
 
-        # Assessment sentence -- templated from real tier/decision, not free-generated
-        tier_phrase = {
-            "Critical": "exhibits strong characteristics consistent with mule-account or fraud activity",
-            "High": "exhibits characteristics consistent with potential mule-account activity",
-            "Medium": "shows some indicators warranting closer review",
-            "Low": "shows no significant fraud indicators at this time"
-        }.get(tier, "requires review")
-        assessment = f"This account {tier_phrase} (model probability: {prob_pct}%, risk tier: {tier})."
+        # Assessment sentence -- templated from real decision, not free-generated
+        decision_phrase = {
+            "Block": "exhibits strong characteristics consistent with mule-account or fraud activity",
+            "Escalate": "exhibits characteristics consistent with potential mule-account activity",
+            "Review": "shows some indicators warranting closer review",
+            "Approve": "shows no significant fraud indicators at this time"
+        }.get(decision, "requires review")
+        assessment = f"This account {decision_phrase} (model probability: {prob_pct}%)."
 
         # Recommendation -- pulled from the real triage_action via the playbook mapping (a
         # concrete checklist), with the model's own rationale kept as separate supporting text
@@ -813,7 +809,6 @@ class FAGERiskEngine:
 
         return {
             "risk_score_pct": final,
-            "risk_tier": tier,
             "risk_decomposition": risk_decomposition,
             "evidence": evidence,
             "assessment": assessment,

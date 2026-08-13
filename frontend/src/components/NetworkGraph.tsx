@@ -71,15 +71,15 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
           
           nodesMap.set(entity.alert_id, {
             id: entity.alert_id,
-            label: `${entity.alert_id}${hopText}\nTier: ${entity.risk_tier}${amtText}`,
+            label: `${entity.alert_id}${hopText}\nSeverity: ${entity.severity}${amtText}`,
             color: {
-              background: entity.risk_tier === 'Critical' ? '#f97316' : entity.risk_tier === 'High' ? '#eab308' : '#3b82f6',
+              background: entity.severity === 'Critical' ? '#f97316' : entity.severity === 'High' ? '#eab308' : '#3b82f6',
               border: isDark ? '#334155' : '#cbd5e1'
             },
             font: { color: '#ffffff', face: 'monospace', size: 11 },
             shape: 'ellipse',
             shadow: true,
-            title: `Alert: ${entity.alert_id} | Tier: ${entity.risk_tier} | Match: ${(entity.match_reasons || []).join('; ')}`
+            title: `Alert: ${entity.alert_id} | Severity: ${entity.severity} | Match: ${(entity.match_reasons || []).join('; ')}`
           });
 
           if (entity.hop_distance === 2 && entity.bridge_entity) {
@@ -226,7 +226,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
         nodesDataRef.current!.update({
           id: entity.alert_id,
           color: {
-            background: entity.risk_tier === 'Critical' ? '#f97316' : entity.risk_tier === 'High' ? '#eab308' : '#3b82f6',
+            background: entity.severity === 'Critical' ? '#f97316' : entity.severity === 'High' ? '#eab308' : '#3b82f6',
             border: isDark ? '#334155' : '#cbd5e1'
           } as any
         });

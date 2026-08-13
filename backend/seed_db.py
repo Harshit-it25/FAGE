@@ -65,7 +65,6 @@ def seed_db():
             receiver_id=f"ACC-{random.randint(1000, 9999)}",
             amount=amount,
             risk_score=score,
-            risk_tier=tier,
             severity=severity,
             status=status,
             reason=random.choice(reasons),
