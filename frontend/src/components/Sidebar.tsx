@@ -127,7 +127,7 @@ export default function Sidebar({
               />
               {/* Label */}
               <span
-                className={`relative transition-colors duration-150 z-10 flex-1 ${
+                className={`relative transition-colors duration-150 z-10 flex-1 text-left ${
                   isActive ? 'text-on-secondary-container font-bold' : 'text-on-surface-variant'
                 }`}
               >
