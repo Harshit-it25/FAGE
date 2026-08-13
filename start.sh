@@ -55,7 +55,7 @@ echo "  Frontend: http://localhost:${FRONTEND_PORT}"
 echo ""
 
 # Start backend in background
-(cd backend && venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT} --reload &)
+(cd backend && FAGE_ENV=development venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT} --reload &)
 BACKEND_PID=$!
 
 # Start frontend in background

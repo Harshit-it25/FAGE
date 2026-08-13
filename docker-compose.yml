@@ -7,6 +7,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - FAGE_ENV=development
       - FAGE_JWT_SECRET=${FAGE_JWT_SECRET}
       - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
       - DATABASE_URL=sqlite:////app/data/fage_alerts.db
