@@ -32,8 +32,7 @@ USER fage
 # Expose port
 EXPOSE 8000
 
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
+# Railway performs its own TCP healthchecks, so we omit Docker HEALTHCHECK to prevent conflicts.
 
-CMD sh -c "cp -n ./fage_alerts.db /app/data/fage_alerts.db 2>/dev/null || true; python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+# Run using the python script which handles PORT env var natively
+CMD ["python", "run.py"]

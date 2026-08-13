@@ -42,6 +42,12 @@ RUN echo 'server { \
     } \
 }' > /etc/nginx/conf.d/default.conf
 
+# Create a startup script to handle dynamic ports
+RUN echo '#!/bin/sh' > /start.sh && \
+    echo 'sed -i -e "s/listen 80;/listen ${PORT:-80};/g" /etc/nginx/conf.d/default.conf' >> /start.sh && \
+    echo 'exec nginx -g "daemon off;"' >> /start.sh && \
+    chmod +x /start.sh
+
 EXPOSE 80
 
-CMD sh -c "sed -i -e 's/listen 80;/listen '${PORT:-80}';/g' /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+CMD ["/start.sh"]
