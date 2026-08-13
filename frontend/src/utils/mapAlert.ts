@@ -62,6 +62,7 @@ export function mapApiAlert(a: AlertInfo): Alert {
     type: customType,
     reason: a.reason,
     riskScore: risk_score,
+    alertSeverity: a.severity || 'Unknown',
     confidence: confidenceLabel === 'Unavailable' ? 'Unavailable' : `${confidenceLabel} (${confidencePercent}%)`,
     confidenceVal: confidencePercent,
     status: (a.status || 'Open') as Alert['status'],

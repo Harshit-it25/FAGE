@@ -297,10 +297,10 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
             <tbody className="divide-y divide-slate-300/40 dark:divide-slate-800/60">
               {paginatedAlerts.length > 0 ? (
                 paginatedAlerts.map((a) => {
-                  const highCutoff = config?.high_cutoff ?? 90;
-                  const medCutoff = config?.medium_cutoff ?? 80;
-                  const barColor = a.riskScore >= highCutoff ? 'bg-red-500' : a.riskScore >= medCutoff ? 'bg-amber-500' : 'bg-green-500';
-                  const textColor = a.riskScore >= highCutoff ? 'text-red-500' : a.riskScore >= medCutoff ? 'text-amber-500' : 'text-green-500';
+                  const isHigh = a.alertSeverity === 'High' || a.alertSeverity === 'Critical';
+                  const isMed = a.alertSeverity === 'Medium';
+                  const barColor = isHigh ? 'bg-red-500' : isMed ? 'bg-amber-500' : 'bg-green-500';
+                  const textColor = isHigh ? 'text-red-500' : isMed ? 'text-amber-500' : 'text-green-500';
                   
                   return (
                     <tr 

@@ -58,6 +58,7 @@ export interface Alert {
   receiverAccountId: string;
   type: string;
   riskScore: number;
+  alertSeverity: string;
   confidence: string;
   confidenceVal: number;
   status: 'Open' | 'Escalated' | 'Closed' | 'Investigating';
