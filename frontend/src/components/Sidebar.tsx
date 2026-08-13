@@ -63,7 +63,6 @@ export default function Sidebar({
     { id: 'explorer' as ViewMode,      label: 'Risk Explorer',           icon: Shield             },
     { id: 'insights' as ViewMode,      label: 'Model Insights',          icon: Brain           },
     { id: 'performance' as ViewMode,   label: 'Model Performance',       icon: Activity           },
-    { id: 'governance' as ViewMode,    label: 'Model Governance',        icon: ShieldCheck        },
     { id: 'alerts' as ViewMode,        label: 'Alerts Queue',            icon: Bell },
   ];
 

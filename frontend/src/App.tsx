@@ -10,7 +10,6 @@ import InvestigationWorkbenchView from './components/InvestigationWorkbenchView'
 import RiskExplorerView from './components/RiskExplorerView';
 import ModelInsightsView from './components/ModelInsightsView';
 import ModelPerformanceView from './components/ModelPerformanceView';
-import ModelGovernanceView from './components/ModelGovernanceView';
 import AlertsQueueView from './components/AlertsQueueView';
 import LoginView from './components/LoginView';
 import AdminAuditView from './components/AdminAuditView';
@@ -19,7 +18,7 @@ import { useAlerts, useUpdateAlert } from './hooks/useFageApi';
 import { mapApiAlert, filterAlertsBySource } from './utils/mapAlert';
 import { useAuth } from './context/AuthContext';
 
-const VIEW_PATHS = ['dashboard', 'investigation', 'explorer', 'insights', 'performance', 'governance', 'alerts', 'admin'] as const;
+const VIEW_PATHS = ['dashboard', 'investigation', 'explorer', 'insights', 'performance', 'alerts', 'admin'] as const;
 type ViewPath = (typeof VIEW_PATHS)[number];
 
 function pathToView(pathname: string): ViewPath {
@@ -292,8 +291,6 @@ function WorkbenchShell() {
         return <ModelInsightsView theme={theme} />;
       case 'performance':
         return <ModelPerformanceView theme={theme} />;
-      case 'governance':
-        return <ModelGovernanceView theme={theme} />;
       case 'alerts':
         return (
           <AlertsQueueView

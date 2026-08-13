@@ -4,7 +4,6 @@ export type ViewMode =
   | 'explorer'
   | 'insights'
   | 'performance'
-  | 'governance'
   | 'alerts'
   | 'admin';
 
