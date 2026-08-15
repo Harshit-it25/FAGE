@@ -23,7 +23,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query, status, Depends, U
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy.exc import IntegrityError
 from threading import Lock
 
@@ -144,7 +144,7 @@ def list_alerts_queue(
     limit: int = Query(5000, ge=1, le=10000),
     db: Session = Depends(get_db)
 ):
-    query = db.query(AlertModel)
+    query = db.query(AlertModel).options(defer(AlertModel.features))
     if status_filter:
         query = query.filter(AlertModel.status.ilike(status_filter))
     if severity_filter:
