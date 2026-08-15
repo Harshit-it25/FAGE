@@ -9,7 +9,7 @@ import DashboardView from './components/DashboardView';
 import InvestigationWorkbenchView from './components/InvestigationWorkbenchView';
 import RiskExplorerView from './components/RiskExplorerView';
 import ModelInsightsView from './components/ModelInsightsView';
-import ModelPerformanceView from './components/ModelPerformanceView';
+
 import AlertsQueueView from './components/AlertsQueueView';
 import LoginView from './components/LoginView';
 import AdminAuditView from './components/AdminAuditView';
@@ -18,7 +18,7 @@ import { useAlerts, useUpdateAlert } from './hooks/useFageApi';
 import { mapApiAlert, filterAlertsBySource } from './utils/mapAlert';
 import { useAuth } from './context/AuthContext';
 
-const VIEW_PATHS = ['dashboard', 'investigation', 'explorer', 'insights', 'performance', 'alerts', 'admin'] as const;
+const VIEW_PATHS = ['dashboard', 'investigation', 'explorer', 'insights', 'alerts', 'admin'] as const;
 type ViewPath = (typeof VIEW_PATHS)[number];
 
 function pathToView(pathname: string): ViewPath {
