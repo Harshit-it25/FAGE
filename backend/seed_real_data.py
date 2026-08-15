@@ -6,6 +6,9 @@ import json
 from datetime import datetime, timedelta, UTC
 import random
 
+from dotenv import load_dotenv
+load_dotenv()
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.db import SessionLocal, AlertModel
@@ -26,8 +29,8 @@ def seed_real_data():
     if target_col not in df.columns:
         target_col = [c for c in df.columns if c.lower() == "f3924"][0]
         
-    frauds = df[df[target_col] == 1].sample(min(20, (df[target_col] == 1).sum()), random_state=42)
-    legits = df[df[target_col] == 0].sample(130, random_state=42)
+    frauds = df[df[target_col] == 1]
+    legits = df[df[target_col] == 0]
     sample_df = pd.concat([frauds, legits]).sample(frac=1, random_state=42).reset_index(drop=True)
     
     print(f"Sampled {len(sample_df)} real rows. Generating scorecards & alerts...")
@@ -96,7 +99,7 @@ def seed_real_data():
             timestamp=ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
             assigned_to="System Operator" if status != "Open" else "Unassigned",
             logs=json.dumps(logs_trail),
-            features=json.dumps({"account_age_days": random.randint(0, 365), "is_international": random.choice([True, False])}),
+            features=json.dumps(req_data),
             explainability=json.dumps(scorecard["explainability"]),
             _ts=ts.timestamp(),
             triage_action="Escalate" if final_score > 75 else "Review",

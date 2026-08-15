@@ -575,6 +575,14 @@ export const fageApi = {
   },
 
   /**
+   * Fetch raw dataset features for an alert
+   */
+  getAlertFeatures: async (alertId: string): Promise<{ status: string; features: Record<string, any> }> => {
+    const response = await apiClient.get<{ status: string; features: Record<string, any> }>(`/alerts/${alertId}/features`);
+    return response.data;
+  },
+
+  /**
    * Priority 5: Similar Past Cases via real cosine similarity over the model's actual
    * feature vectors. No fabricated case outcomes -- status shown is the real recorded value.
    */

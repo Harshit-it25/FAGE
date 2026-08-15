@@ -141,7 +141,7 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
 def list_alerts_queue(
     status_filter: Optional[str] = Query(None, description="Select Alert status: Open, Investigating, Escalated, Closed."),
     severity_filter: Optional[str] = Query(None, description="Select Severity: Low, Medium, High, Critical."),
-    limit: int = Query(1000, ge=1, le=2000),
+    limit: int = Query(5000, ge=1, le=10000),
     db: Session = Depends(get_db)
 ):
     query = db.query(AlertModel)
@@ -157,6 +157,19 @@ def list_alerts_queue(
         "status": "success",
         "alerts_count": len(results),
         "alerts": slim_results
+    }
+
+@router.get("/alerts/{alert_id}/features", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
+def get_alert_features(alert_id: str, db: Session = Depends(get_db)):
+    alert = db.query(AlertModel).filter(AlertModel.id == alert_id).first()
+    if not alert:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Target alert record matching reference [{alert_id}] could not be found."
+        )
+    return {
+        "status": "success",
+        "features": json.loads(alert.features) if alert.features else {}
     }
 
 @router.post("/alerts", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])

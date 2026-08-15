@@ -62,12 +62,16 @@ export default function InvestigationWorkbenchView({
   const [correlateLoading, setCorrelateLoading] = useState(false);
   const [similarCases, setSimilarCases] = useState<SimilarCasesResponse | null>(null);
   const [similarCasesLoading, setSimilarCasesLoading] = useState(false);
+  const [alertFeatures, setAlertFeatures] = useState<Record<string, any> | null>(null);
+  const [featuresLoading, setFeaturesLoading] = useState(false);
 
   useEffect(() => {
     setCorrelateData(null);
     setSimilarCases(null);
+    setAlertFeatures(null);
     setCorrelateLoading(true);
     setSimilarCasesLoading(true);
+    setFeaturesLoading(true);
 
     fageApi.correlateAlert(activeAlert.id)
       .then(res => setCorrelateData(res))
@@ -84,6 +88,14 @@ export default function InvestigationWorkbenchView({
         setSimilarCases(null);
       })
       .finally(() => setSimilarCasesLoading(false));
+
+    fageApi.getAlertFeatures(activeAlert.id)
+      .then(res => setAlertFeatures(res.features))
+      .catch(err => {
+        console.error('Failed to fetch /features:', err);
+        setAlertFeatures(null);
+      })
+      .finally(() => setFeaturesLoading(false));
   }, [activeAlert.id]);
 
   useEffect(() => {
@@ -377,6 +389,27 @@ export default function InvestigationWorkbenchView({
               <p className="text-[10px] text-on-surface-variant uppercase font-bold mb-1 tracking-widest">Account ID</p>
               <p className="mono-text text-lg font-bold text-on-surface">{activeAlert.accountNumber}</p>
             </div>
+          </div>
+
+          {/* Dataset Attributes */}
+          <div className="mt-6 grid grid-cols-1 gap-6 p-6 bg-surface-container rounded-xl">
+            <h3 className="flex items-center gap-2 text-[10px] text-on-surface-variant uppercase font-bold tracking-widest">
+              <Layers size={14} className="text-primary" /> Dataset Account Attributes (Raw)
+            </h3>
+            {featuresLoading ? (
+               <div className="text-xs text-on-surface-variant italic py-2">Loading dataset features...</div>
+            ) : alertFeatures && Object.keys(alertFeatures).length > 0 ? (
+               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 max-h-48 overflow-y-auto custom-scrollbar pr-2">
+                 {Object.entries(alertFeatures).filter(([_, v]) => v !== null && v !== 0 && v !== '').slice(0, 100).map(([key, value]) => (
+                   <div key={key}>
+                     <p className="text-[9px] text-on-surface-variant uppercase font-bold truncate" title={key}>{key}</p>
+                     <p className="text-xs font-mono text-on-surface truncate" title={String(value)}>{String(value)}</p>
+                   </div>
+                 ))}
+               </div>
+            ) : (
+               <div className="text-xs text-on-surface-variant italic py-2">No raw features available for this account.</div>
+            )}
           </div>
         </div>
 
