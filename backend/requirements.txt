@@ -21,3 +21,4 @@ networkx==3.4.2
 # Test-only dependency: fastapi.testclient.TestClient requires this on
 # fastapi==0.136.3. Without it, `pytest tests/` fails at collection.
 httpx
+python-dotenv==1.0.1
