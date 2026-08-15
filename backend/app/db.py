@@ -51,8 +51,8 @@ class AlertModel(Base):
     tenant_id = Column(String, index=True, default="default")
     org_id = Column(String, index=True, default="FAGE-CORE")
 
-    def to_dict(self):
-        return {
+    def to_dict(self, exclude_features=False):
+        d = {
             "id": self.id,
             "transaction_id": self.transaction_id,
             "sender_id": self.sender_id,
@@ -65,7 +65,6 @@ class AlertModel(Base):
             "timestamp": self.timestamp,
             "assigned_to": self.assigned_to,
             "logs": json.loads(self.logs) if self.logs else [],
-            "features": json.loads(self.features) if self.features else {},
             "explainability": json.loads(self.explainability) if self.explainability else None,
             "_ts": self._ts,
             "triage_action": self.triage_action,
@@ -74,6 +73,9 @@ class AlertModel(Base):
             "tenant_id": getattr(self, "tenant_id", "default"),
             "org_id": getattr(self, "org_id", "FAGE-CORE"),
         }
+        if not exclude_features:
+            d["features"] = json.loads(self.features) if self.features else {}
+        return d
 
 
 class AuditLogModel(Base):

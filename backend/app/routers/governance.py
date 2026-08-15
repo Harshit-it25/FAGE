@@ -150,13 +150,12 @@ def list_alerts_queue(
     if severity_filter:
         query = query.filter(AlertModel.severity.ilike(severity_filter))
         
-    results = [a.to_dict() for a in query.limit(limit).all()]
-    slim_results = [{k: v for k, v in a.items() if k != "features"} for a in results]
+    results = [a.to_dict(exclude_features=True) for a in query.limit(limit).all()]
         
     return {
         "status": "success",
         "alerts_count": len(results),
-        "alerts": slim_results
+        "alerts": results
     }
 
 @router.get("/alerts/{alert_id}/features", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
