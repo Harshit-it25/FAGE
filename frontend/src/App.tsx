@@ -289,8 +289,7 @@ function WorkbenchShell() {
         return <RiskExplorerView alerts={processedAlerts} onSelectAlert={handleSelectAlert} theme={theme} />;
       case 'insights':
         return <ModelInsightsView theme={theme} />;
-      case 'performance':
-        return <ModelPerformanceView theme={theme} />;
+
       case 'alerts':
         return (
           <AlertsQueueView
