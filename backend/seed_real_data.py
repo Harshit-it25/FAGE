@@ -65,8 +65,13 @@ def seed_real_data():
         # Only create alerts for transactions that cross a certain threshold or just create them anyway for the dashboard?
         # If we want a mix of alerts, maybe we create an alert for all of them or just the ones with score >= 50, but let's make them all visible
         
-        alert_id = f"ALT-{str(uuid.uuid4()).upper()}"
+        true_label = int(row[target_col])
         
+        # Use specific prefixes so the frontend knows the TRUE Ground Truth label from the dataset
+        if true_label == 1:
+            alert_id = f"ALT-TGT-{str(uuid.uuid4()).upper()}"
+        else:
+            alert_id = f"ALT-DS-{str(uuid.uuid4()).upper()}"        
         reason_summary = scorecard["categorizations"]["alert_severity"] + " Severity Risk Score Card triggered."
         if scorecard["rules_audit"]["triggered_rules_count"] > 0:
             reasons = [r["reason"] for r in scorecard["rules_audit"]["overrides"]]
