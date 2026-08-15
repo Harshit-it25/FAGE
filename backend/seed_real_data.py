@@ -31,7 +31,7 @@ def seed_real_data():
         
     frauds = df[df[target_col] == 1]
     legits = df[df[target_col] == 0]
-    sample_df = pd.concat([frauds, legits]).sample(frac=1, random_state=42).reset_index(drop=True)
+    sample_df = pd.concat([frauds, legits]).sample(frac=1, random_state=42).reset_index(drop=True).head(5000)
     
     print(f"Sampled {len(sample_df)} real rows. Generating scorecards & alerts...")
     
@@ -113,11 +113,14 @@ def seed_real_data():
             tenant_id="default",
             org_id="FAGE-CORE",
         )
-        alerts.append(new_record)
+        db.add(new_record)
         
-    db.add_all(alerts)
-    db.commit()
-    print(f"Successfully processed {len(alerts)} authentic transactions into the database.")
+        # Commit incrementally so the UI populates immediately
+        if (i + 1) % 10 == 0:
+            db.commit()
+        
+    db.commit() # Final commit for any remaining
+    print(f"Successfully processed {len(sample_df)} authentic transactions into the database.")
     db.close()
 
 if __name__ == "__main__":
