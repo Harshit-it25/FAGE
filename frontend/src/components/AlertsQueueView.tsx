@@ -83,7 +83,7 @@ export default function AlertsQueueView({
     });
   }, [alerts, activeQueueTab, searchWord, assigneeFilter]);
 
-  const itemsPerPage = 8;
+  const [itemsPerPage] = useState(100);
   const totalItems = filteredQueue.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
   const paginatedQueue = useMemo(() => {
