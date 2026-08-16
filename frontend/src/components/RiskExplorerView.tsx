@@ -341,9 +341,6 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
                       </td>
                       <td className="p-3.5 font-mono text-slate-400 font-semibold whitespace-nowrap">
                         <span className="inline-block whitespace-nowrap">{a.confidenceVal.toFixed(1)}%</span>
-                        {a.pu_probability > 0 && (
-                          <span className="block text-[9px] text-purple-400 whitespace-nowrap">PU: {(a.pu_probability * 100).toFixed(0)}%</span>
-                        )}
                       </td>
                       <td className="p-3.5">{getSeverityBadge(a.prio)}</td>
                       <td className="p-3.5 text-right">
