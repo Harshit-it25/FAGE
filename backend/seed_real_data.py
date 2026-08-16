@@ -91,6 +91,10 @@ def seed_real_data():
         else:
             status = random.choice(["Closed", "Open"])
 
+        expl_payload = scorecard["explainability"]
+        if "confidence_interval_90" in scorecard.get("scores", {}):
+            expl_payload["confidence_interval_90"] = scorecard["scores"]["confidence_interval_90"]
+
         new_record = AlertModel(
             id=alert_id,
             transaction_id=scorecard["transaction_id"],
@@ -105,7 +109,7 @@ def seed_real_data():
             assigned_to="System Operator" if status != "Open" else "Unassigned",
             logs=json.dumps(logs_trail),
             features=json.dumps(req_data),
-            explainability=json.dumps(scorecard["explainability"]),
+            explainability=json.dumps(expl_payload),
             _ts=ts.timestamp(),
             triage_action="Escalate" if final_score > 75 else "Review",
             priority_tier="High" if final_score > 75 else "Low",
