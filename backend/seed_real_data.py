@@ -12,7 +12,7 @@ load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.db import SessionLocal, AlertModel
-from app.main import risk_engine
+from app.dependencies import risk_engine
 
 def seed_real_data():
     db = SessionLocal()
