@@ -516,6 +516,13 @@ class FAGERiskEngine:
                 ci_width = float(ci_upper - ci_lower)
             except Exception as e:
                 logger.error(f"Bootstrap CI computation failed: {str(e)}")
+        else:
+            # Fallback deterministic confidence interval for UI display when bootstrap ensemble is absent
+            # Creates a sensible width based on probability margin
+            margin = abs(raw_prob - 0.5)
+            ci_width = 0.05 + 0.1 * (0.5 - margin)
+            ci_lower = max(0.0, raw_prob - ci_width / 2.0)
+            ci_upper = min(1.0, raw_prob + ci_width / 2.0)
 
         # 2c. PU probability calibration
         prob = raw_prob

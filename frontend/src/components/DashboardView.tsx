@@ -296,7 +296,7 @@ export default function DashboardView({
             <Database className="w-12 h-12 text-primary" />
           </div>
           <p className="text-xs font-bold tracking-widest text-on-surface-variant uppercase mb-2">Total Accounts (Dataset)</p>
-          <h3 className="text-2xl font-black text-primary">9,082</h3>
+          <h3 className="text-2xl font-black text-primary">{apiDatasetCount.toLocaleString()}</h3>
           <div className="mt-4 h-1 w-full bg-surface-container rounded-full overflow-hidden">
             <div className="h-full bg-primary shadow-[0_0_8px_rgba(0,161,155,0.5)]" style={{ width: '100%' }}></div>
           </div>
@@ -310,12 +310,12 @@ export default function DashboardView({
             <Target className="w-12 h-12 text-error" />
           </div>
           <p className="text-xs font-bold tracking-widest text-on-surface-variant uppercase mb-2">Mule Accounts (Dataset)</p>
-          <h3 className="text-2xl font-black text-error">81</h3>
+          <h3 className="text-2xl font-black text-error">{apiTargetCount.toLocaleString()}</h3>
           <div className="mt-4 h-1 w-full bg-surface-container rounded-full overflow-hidden">
-            <div className="h-full bg-error shadow-[0_0_8px_rgba(255,180,171,0.5)]" style={{ width: '0.88%' }}></div>
+            <div className="h-full bg-error shadow-[0_0_8px_rgba(255,180,171,0.5)]" style={{ width: `${Math.min(100, (apiTargetCount / (apiDatasetCount || 1)) * 100)}%` }}></div>
           </div>
           <div className="flex items-center gap-1 mt-4 text-[10px] text-error/80 font-mono">
-            <span>GROUND TRUTH FRAUD (0.88%)</span>
+            <span>GROUND TRUTH FRAUD ({((apiTargetCount / (apiDatasetCount || 1)) * 100).toFixed(2)}%)</span>
           </div>
         </div>
 
@@ -324,12 +324,12 @@ export default function DashboardView({
             <ShieldCheck className="w-12 h-12 text-emerald-500" />
           </div>
           <p className="text-xs font-bold tracking-widest text-on-surface-variant uppercase mb-2">Normal Accounts (Dataset)</p>
-          <h3 className="text-2xl font-black text-emerald-500">9,001</h3>
+          <h3 className="text-2xl font-black text-emerald-500">{(apiDatasetCount - apiTargetCount).toLocaleString()}</h3>
           <div className="mt-4 h-1 w-full bg-surface-container rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" style={{ width: '99.12%' }}></div>
+            <div className="h-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" style={{ width: `${Math.max(0, 100 - (apiTargetCount / (apiDatasetCount || 1)) * 100)}%` }}></div>
           </div>
           <div className="flex items-center gap-1 mt-4 text-[10px] text-emerald-500/80 font-mono">
-            <span>GROUND TRUTH LEGITIMATE</span>
+            <span>SECURE ACCOUNTS ({Math.max(0, 100 - (apiTargetCount / (apiDatasetCount || 1)) * 100).toFixed(2)}%)</span>
           </div>
         </div>
       </div>

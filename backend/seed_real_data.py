@@ -31,7 +31,7 @@ def seed_real_data():
         
     frauds = df[df[target_col] == 1]
     legits = df[df[target_col] == 0]
-    sample_df = pd.concat([frauds, legits]).sample(frac=1, random_state=42).reset_index(drop=True).head(5000)
+    sample_df = pd.concat([frauds, legits]).reset_index(drop=True)
     
     print(f"Sampled {len(sample_df)} real rows. Generating scorecards & alerts...")
     

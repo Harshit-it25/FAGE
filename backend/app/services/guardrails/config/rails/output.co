@@ -1,0 +1,22 @@
+define bot output contains secrets
+  "FAGE_JWT_SECRET="
+  "NVIDIA_API_KEY="
+  "sk-"
+  "nvapi-"
+  "Traceback (most recent call last):"
+  "jdbc:sqlite:"
+
+define flow check output secrets
+  bot generate response
+  if $bot_response contains "nvapi-"
+    bot refuse to generate response
+    stop
+  if $bot_response contains "FAGE_JWT_SECRET"
+    bot refuse to generate response
+    stop
+  if $bot_response contains "Traceback"
+    bot refuse to generate response
+    stop
+  
+define bot refuse to generate response
+  "Error: The generated report violated output safety constraints and was blocked."

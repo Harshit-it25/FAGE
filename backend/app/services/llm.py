@@ -30,39 +30,24 @@ The subject account engaged in multiple rapid transactions across different enti
 **RECOMMENDATION:**
 Proceed with immediate escalation to the Fraud Investigation Unit (FIU) and consider a temporary freeze on outgoing transfers pending manual verification."""
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json"
-    }
-
-    payload = {
-        "model": "nvidia/nemotron-3-super-120b-a12b",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 16384,
-        "temperature": 1,
-        "top_p": 0.95,
-        "stream": False,
-        "chat_template_kwargs": {"enable_thinking": True},
-        "reasoning_budget": 16384
-    }
+    from app.services.guardrails import guardrails_manager
+    import asyncio
 
     try:
-        response = requests.post(invoke_url, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        data = response.json()
-        content = data["choices"][0]["message"]["content"]
+        # We are inside a threadpool (run_in_threadpool), so we create a new event loop or use asyncio.run
+        # to execute the async guardrails function.
+        content = asyncio.run(guardrails_manager.generate_safe_sar(prompt))
         
-        # Strip <think> tags
+        # Strip <think> tags (if NIM returns them)
         if "<think>" in content and "</think>" in content:
             content = content.split("</think>")[-1].strip()
             
         return content
-    except requests.exceptions.Timeout:
-        logger.error("NVIDIA LLM API timed out after 60 seconds.")
+    except Exception as e:
+        logger.error(f"Error calling Guardrails LLM API: {e}")
         if fallback is not None:
             return fallback
-        return "Error: The LLM API timed out while generating the SAR."
-    except Exception as e:
+        return "Error: An unexpected error occurred while generating the report."
         logger.error(f"Error calling NVIDIA LLM API: {e}")
         if fallback is not None:
             return fallback

@@ -112,9 +112,9 @@ def _active_alert_score_cutoffs() -> tuple:
         thr = risk_engine.per_model_thresholds.get(active_key)
     if not thr:
         thr = GLOBAL_DECISION_THRESHOLD if GLOBAL_DECISION_THRESHOLD else 0.26
-    medium_cutoff = 100.0 * thr
-    high_cutoff = 100.0 * min(1.0, 5.0 * thr)
-    return medium_cutoff, high_cutoff
+    medium_cutoff = 50.0 * thr
+    high_cutoff = 100.0 * thr
+    return (medium_cutoff, high_cutoff)
 
 def _load_active_model_metrics() -> dict:
     """Pull metrics for the currently active classifier, respecting GLOBAL_DECISION_THRESHOLD."""
