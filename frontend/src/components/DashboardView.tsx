@@ -287,7 +287,34 @@ export default function DashboardView({
         </div>
       )}
 
-      {/* KPI Row (Glassmorphism Cards) */}
+      {/* Dataset Overview Row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <div className="stitch-glass-card p-6 rounded-md relative overflow-hidden group">
+          <p className="text-xs font-bold tracking-widest text-on-surface-variant uppercase mb-2">Total Accounts (Dataset)</p>
+          <h3 className="text-2xl font-black text-primary">9,081</h3>
+          <div className="flex items-center gap-1 mt-4 text-[10px] text-primary/80 font-mono">
+            <span>FULL TRAINING & TEST SET</span>
+          </div>
+        </div>
+
+        <div className="stitch-glass-card p-6 rounded-md relative overflow-hidden group">
+          <p className="text-xs font-bold tracking-widest text-on-surface-variant uppercase mb-2">Mule Accounts (Dataset)</p>
+          <h3 className="text-2xl font-black text-error">80</h3>
+          <div className="flex items-center gap-1 mt-4 text-[10px] text-error/80 font-mono">
+            <span>GROUND TRUTH FRAUD (0.88%)</span>
+          </div>
+        </div>
+
+        <div className="stitch-glass-card p-6 rounded-md relative overflow-hidden group">
+          <p className="text-xs font-bold tracking-widest text-on-surface-variant uppercase mb-2">Normal Accounts (Dataset)</p>
+          <h3 className="text-2xl font-black text-emerald-500">9,001</h3>
+          <div className="flex items-center gap-1 mt-4 text-[10px] text-emerald-500/80 font-mono">
+            <span>GROUND TRUTH LEGITIMATE</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Live Queue KPI Row (Glassmorphism Cards) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="stitch-glass-card p-6 rounded-md relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
