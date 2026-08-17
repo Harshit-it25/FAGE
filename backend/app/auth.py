@@ -30,14 +30,17 @@ def _is_dev_env() -> bool:
 
 if not SECRET_KEY or SECRET_KEY == "fage-dev-jwt-secret-change-in-production":
     if not _is_dev_env():
-        raise RuntimeError(
-            "CRITICAL SECURITY ERROR: FAGE_JWT_SECRET is missing or set to the insecure default in a production environment! "
-            "Set FAGE_JWT_SECRET to a strong random secret before running the server."
+        import secrets
+        import logging
+        logger = logging.getLogger("FAGE.Auth")
+        logger.warning(
+            "SECURITY WARNING: FAGE_JWT_SECRET is missing or set to the insecure default in a production environment! "
+            "Generating a random ephemeral secret. All user sessions will be invalidated on server restart."
         )
-    
-    SECRET_KEY = "fage-dev-jwt-secret-change-in-production"
-    
-    import logging
+        SECRET_KEY = secrets.token_urlsafe(32)
+    else:
+        SECRET_KEY = "fage-dev-jwt-secret-change-in-production"
+
     import warnings
     _auth_logger = logging.getLogger("FAGE.Auth")
     _msg = (

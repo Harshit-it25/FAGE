@@ -26,3 +26,4 @@ Thumbs.db
 .dbeaver/
 .project
 *.db
+!backend/fage_alerts.db

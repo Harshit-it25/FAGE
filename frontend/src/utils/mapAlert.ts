@@ -17,7 +17,7 @@ export function mapApiAlert(a: AlertInfo): Alert {
   }
 
   let customType = 'Rapid Fund Transfer (Mule)';
-  if (a.id.startsWith('ALT-TGT-') || risk_score >= 50) {
+  if (a.id.startsWith('ALT-TGT-') || risk_score >= 60) {
     customType = 'Mule Account';
   } else if (a.reason) {
     if (a.reason.includes('Dataset Target Fraud Account')) customType = 'Mule Account';
