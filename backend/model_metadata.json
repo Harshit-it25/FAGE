@@ -10,7 +10,7 @@
   "n_features_total": 450,
   "n_seed_features_forced": 32,
   "n_extended_features_selected": 418,
-  "decision_threshold": 0.42000000000000004,
+  "threshold": 0.60,
   "leak_columns_removed": [
     "F3912 (Pearson r=0.969 w/ target)",
     "F2230 (Cramer's V=1.0, month-cohort leak)",

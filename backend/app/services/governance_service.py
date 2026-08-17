@@ -1,5 +1,6 @@
 import networkx as nx
 import hashlib
+import time
 import uuid
 from datetime import datetime, UTC
 from typing import Dict, Any, List, Optional
@@ -8,7 +9,7 @@ import logging
 from fastapi import HTTPException
 from app.services.llm import call_nvidia_llm
 from app.db import write_audit, AlertModel
-from app.dependencies import _CORRELATE_CACHE_TTL_SECONDS
+from app.dependencies import _CORRELATE_CACHE_TTL_SECONDS, _correlate_cache, _COMPLIANCE_RULES
 from fastapi.concurrency import run_in_threadpool
 import os
 _INR_USD_RATE = float(os.environ.get('FAGE_INR_USD_RATE', '83.5'))
@@ -196,7 +197,24 @@ async def build_sar_report_service(alert_id: str, user, db, risk_engine):
     {json.dumps(key_drivers[:5], indent=2)}
     """
     
-    llm_narrative = await run_in_threadpool(call_nvidia_llm, prompt)
+    deterministic_fallback = f"""**[SAR AI generation unavailable. Deterministic evidence-based draft generated]**
+
+**SUBJECT:** Suspicious Activity Detected for Account {alert.sender_id}
+**SUMMARY:**
+Risk Score: {alert.risk_score}
+Transaction Amount: ₹{alert.amount:,.2f}
+Alert Reason: {alert.reason or 'Unusual activity patterns'}
+
+**DETAILED NARRATIVE:**
+This alert was generated based on the following key risk drivers:
+"""
+    for d in key_drivers[:3]:
+        fname = d.get("feature", "unknown")
+        sval = d.get("shap_val", 0.0)
+        contrib = d.get("contribution", "Medium")
+        deterministic_fallback += f"- {fname} (SHAP: {sval:+.4f}, Contribution: {contrib})\n"
+
+    llm_narrative = await run_in_threadpool(call_nvidia_llm, prompt, deterministic_fallback)
 
     shap_table_rows = []
     for d in key_drivers[:8]:
@@ -364,6 +382,11 @@ def build_correlation_graph_service(alert_id: str, user, db):
         return cached[1]
 
     alerts = db.query(AlertModel).all()
+    print("DEBUG: CORRELATE SERVICE ALERT COUNT:", len(alerts))
+    print("DEBUG: CORRELATE SERVICE LOOKING FOR:", alert_id)
+    if not any(a.id == alert_id for a in alerts):
+        print("DEBUG: TARGET NOT IN ALERTS!")
+    
     alerts_copy = []
     for a in alerts:
         a_dict = a.to_dict()
@@ -536,6 +559,7 @@ def build_correlation_graph_service(alert_id: str, user, db):
             "rules_audit": {"triggered_rules_count": 0, "overrides": []},
             "explainability": {"key_risk_drivers": stored_expl.get("key_risk_drivers", [])},
         }
+        from app.dependencies import risk_engine
         investigation_summary = risk_engine.generate_investigation_summary(pseudo_scorecard, graph_intel)
 
     write_audit(

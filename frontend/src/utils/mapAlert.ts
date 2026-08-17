@@ -11,9 +11,6 @@ export function mapApiAlert(a: AlertInfo): Alert {
   if (ci && ci.width !== null && ci.width !== undefined) {
     confidencePercent = Math.round(Math.max(0, Math.min(100, 100 - ci.width * 100)));
     confidenceLabel = confidencePercent >= 80 ? 'High' : confidencePercent >= 50 ? 'Medium' : 'Low';
-  } else if (a.pu_probability !== undefined && a.pu_probability !== null) {
-    confidencePercent = Math.round(Math.max(a.pu_probability, 1 - a.pu_probability) * 100);
-    confidenceLabel = confidencePercent >= 80 ? 'High' : confidencePercent >= 60 ? 'Medium' : 'Low';
   } else {
     confidencePercent = 0;
     confidenceLabel = 'Unavailable';

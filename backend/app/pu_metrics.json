@@ -3,11 +3,11 @@
   "c_estimate": 0.75,
   "spy_threshold": 0.015,
   "closed_loop_feedback_counts": {
-    "True Positive": 62,
+    "True Positive": 64,
     "False Positive": 0,
     "Mule Ring": 0,
     "Other": 0
   },
-  "last_recalibration_timestamp": "2026-08-17T09:37:49.121908+00:00Z",
-  "last_tuning_timestamp": "2026-08-17T09:37:49.306677+00:00Z"
+  "last_recalibration_timestamp": "2026-08-17T12:39:53.873915+00:00Z",
+  "last_tuning_timestamp": "2026-08-17T12:39:54.273501+00:00Z"
 }

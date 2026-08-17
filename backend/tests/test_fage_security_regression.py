@@ -111,24 +111,21 @@ def test_traversal_style_path():
 
 def test_llm_timeout_fallback():
     with patch.dict(os.environ, {"NVIDIA_API_KEY": "dummy"}):
-        with patch('requests.post', side_effect=requests.exceptions.Timeout):
+        with patch('app.services.guardrails.manager.GuardrailsManager.generate_safe_sar', side_effect=TimeoutError("Timeout")):
             result = call_nvidia_llm("test prompt", fallback="Timeout Fallback")
             assert result == "Timeout Fallback"
             
             result2 = call_nvidia_llm("test prompt")
-            assert result2 == "Error: The LLM API timed out while generating the SAR." or "**SUSPICIOUS" in result2
+            assert "Error:" in result2
 
 def test_llm_upstream_5xx_fallback():
     with patch.dict(os.environ, {"NVIDIA_API_KEY": "dummy"}):
-        mock_response = MagicMock()
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("500 Server Error")
-        
-        with patch('requests.post', return_value=mock_response):
+        with patch('app.services.guardrails.manager.GuardrailsManager.generate_safe_sar', side_effect=Exception("500 Server Error")):
             result = call_nvidia_llm("test prompt", fallback="500 Fallback")
             assert result == "500 Fallback"
             
             result2 = call_nvidia_llm("test prompt")
-            assert "unexpected error" in result2.lower() or "**SUSPICIOUS" in result2
+            assert "Error:" in result2
 
 def test_llm_missing_api_key_fallback():
     with patch.dict(os.environ, {}, clear=True):
@@ -138,11 +135,7 @@ def test_llm_missing_api_key_fallback():
 def test_llm_api_key_not_in_error_message():
     secret_key = "SECRET_NVIDIA_API_KEY_12345"
     with patch.dict(os.environ, {"NVIDIA_API_KEY": secret_key}):
-        # Mock an exception that contains the secret key (which would be bad if leaked)
-        mock_response = MagicMock()
-        mock_response.raise_for_status.side_effect = Exception(f"Failed with key {secret_key}")
-        
-        with patch('requests.post', return_value=mock_response):
+        with patch('app.services.guardrails.manager.GuardrailsManager.generate_safe_sar', side_effect=Exception(f"Failed with key {secret_key}")):
             result = call_nvidia_llm("test prompt")
             # The result string returned to the client should NOT contain the secret key
             assert secret_key not in result

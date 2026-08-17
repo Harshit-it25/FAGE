@@ -16,19 +16,7 @@ def call_nvidia_llm(prompt: str, fallback: str = None) -> str:
         logger.warning("NVIDIA_API_KEY is missing. Using fallback response.")
         if fallback is not None:
             return fallback
-        return """**SUSPICIOUS ACTIVITY REPORT (SAR) DRAFT**
-
-**SUBJECT:** Suspicious Transfers Detected
-**SUMMARY:**
-The subject account engaged in multiple rapid transactions across different entities. The transaction velocity and aggregated volumes deviate significantly from the baseline behavior for this account tier. 
-
-**DETAILED NARRATIVE:**
-1. A series of high-value transactions were initiated within a brief time window.
-2. The counterparty addresses have been recently flagged by the FAGE Risk Engine as potentially associated with coordinated fraud rings.
-3. The ML models indicate a high probability of account takeover or structured placement.
-
-**RECOMMENDATION:**
-Proceed with immediate escalation to the Fraud Investigation Unit (FIU) and consider a temporary freeze on outgoing transfers pending manual verification."""
+        return "Error: LLM Service Unavailable. Cannot generate SAR."
 
     from app.services.guardrails import guardrails_manager
     import asyncio
@@ -45,10 +33,6 @@ Proceed with immediate escalation to the Fraud Investigation Unit (FIU) and cons
         return content
     except Exception as e:
         logger.error(f"Error calling Guardrails LLM API: {e}")
-        if fallback is not None:
-            return fallback
-        return "Error: An unexpected error occurred while generating the report."
-        logger.error(f"Error calling NVIDIA LLM API: {e}")
         if fallback is not None:
             return fallback
         return "Error: An unexpected error occurred while generating the report."

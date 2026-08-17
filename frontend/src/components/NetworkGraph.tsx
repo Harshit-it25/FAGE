@@ -357,14 +357,16 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
         </div>
       )}
 
-      {data.data_provenance && (
-        <div className="flex flex-col text-[11px] opacity-80 mt-1 mb-1 px-1">
-          <span className="font-bold text-primary tracking-wide">{data.data_provenance.layer}</span>
-          <span className="italic">
-            Network relationships illustrative — derived via NetworkX graph algorithms on transaction metadata
-          </span>
+      <div className={`p-2.5 rounded border text-xs flex flex-col gap-1 font-sans ${
+        isDark ? 'bg-amber-950/40 border-amber-500/40 text-amber-300' : 'bg-amber-50 border-amber-300 text-amber-800'
+      }`}>
+        <div className="font-bold uppercase tracking-wider flex items-center gap-1">
+          ⚠️ INVESTIGATION SIMULATION
         </div>
-      )}
+        <div>
+          The underlying dataset lacks relational identifiers (e.g., Device ID, IP). These graph edges are mathematically synthesized for demonstration purposes and do not represent real transaction relationships.
+        </div>
+      </div>
 
       <div 
         ref={containerRef} 
