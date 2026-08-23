@@ -16,12 +16,8 @@ from typing import Dict, List, Any, Optional
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics.pairwise import cosine_similarity
-from pydantic import BaseModel, Field
-
-from fastapi import APIRouter, FastAPI, HTTPException, Query, status, Depends, UploadFile, File, Request, Header
+from fastapi import APIRouter, FastAPI, HTTPException, Query, status, Depends, Request, Header
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -43,10 +39,10 @@ from app.auth import (
 )
 from app.services.risk_engine import FAGERiskEngine
 from app.ml.dp_engine import dp_engine, PrivacyBudgetExceededError
-from app.services.llm import call_nvidia_llm
 
 from app.dependencies import (
-    risk_engine, GLOBAL_DECISION_THRESHOLD, _threshold_lock,
+    risk_engine,
+    set_global_threshold, get_global_threshold,
     _COMPLIANCE_RULES,
     _active_alert_score_cutoffs, _load_active_model_metrics,
     _compute_rule_exception_rate, _build_real_sample_df,
@@ -66,6 +62,26 @@ logger = logging.getLogger("FAGE.API.Backend")
 _INR_USD_RATE = float(os.environ.get("FAGE_INR_USD_RATE", "83.5"))
 
 router = APIRouter(tags=["Analytics"])
+
+def _load_confusion_matrix_from_cost_thresholds() -> list:
+    """Load confusion matrix from the Conservative operating point in cost_thresholds.json.
+    Returns [[TN, FP], [FN, TP]] on success, or a clearly-labelled placeholder on failure.
+    """
+    try:
+        ct_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "cost_thresholds.json")
+        ct_path = os.path.realpath(ct_path)
+        if os.path.exists(ct_path):
+            with open(ct_path, "r", encoding="utf-8") as f:
+                ct = json.load(f)
+            m = ct.get("operating_points", {}).get("Conservative", {}).get("metrics", {})
+            tp = int(m.get("tp", 0))
+            fp = int(m.get("fp", 0))
+            tn = int(m.get("tn", 0))
+            fn = int(m.get("fn", 0))
+            return [[tn, fp], [fn, tp]]
+    except Exception as e:
+        logger.error(f"Failed to load confusion matrix from cost_thresholds.json: {e}")
+    return [[0, 0], [0, 0]]  
 
 @router.get("/model-registry", tags=["Model Analytics"], dependencies=[Depends(verify_api_key)])
 async def get_model_rejection_registry():
@@ -98,9 +114,14 @@ async def get_model_metrics_endpoint():
             "precision": active_metrics["precision"],
             "recall": active_metrics["recall"],
             "f1": active_metrics["f1"],
-            "accuracy": active_metrics.get("accuracy", 0.92),
+            "accuracy": active_metrics.get("accuracy", 0.0),
             "threshold": active_metrics["threshold"],
-            "confusion_matrix": [[9500, 150], [250, 750]]
+            "fpr": active_metrics.get("fpr", 0.0),
+            "mcc": active_metrics.get("mcc", 0.0),
+            "brier_score": active_metrics.get("brier_score", 0.0),
+            
+            
+            "confusion_matrix": _load_confusion_matrix_from_cost_thresholds()
         }
     }
 
@@ -136,9 +157,12 @@ async def get_dp_model_metrics_endpoint(
         "recall": float(active_metrics.get("recall", 0.0)),
         "f1": float(active_metrics.get("f1", 0.0)),
         "accuracy": float(active_metrics.get("accuracy", 0.0)),
-        "threshold": float(active_metrics.get("threshold", 0.0))
+        "threshold": float(active_metrics.get("threshold", 0.0)),
+        "fpr": float(active_metrics.get("fpr", 0.0)),
+        "mcc": float(active_metrics.get("mcc", 0.0)),
+        "brier_score": float(active_metrics.get("brier_score", 0.0))
     }
-    # Include PU engine state metrics
+    
     if risk_engine.pu_engine:
         c_val = getattr(risk_engine.pu_engine, "c_", None)
         if c_val is not None:
@@ -320,11 +344,12 @@ async def get_global_feature_importance(db: Session = Depends(get_db)):
 
 @router.post("/tune-threshold", tags=["Model Analytics"], dependencies=[Depends(verify_api_key), Depends(require_role("admin"))])
 def tune_model_threshold(request: TuneRequest, user: AuthUser = Depends(verify_api_key), db: Session = Depends(get_db)):
-    global GLOBAL_DECISION_THRESHOLD
     if not (0.0 < request.new_threshold < 1.0):
         raise HTTPException(status_code=400, detail="Threshold must be between 0.0 and 1.0")
-    with _threshold_lock:
-        GLOBAL_DECISION_THRESHOLD = request.new_threshold
+    
+    
+    
+    set_global_threshold(request.new_threshold)
 
     write_audit(
         db,
@@ -436,7 +461,7 @@ async def tune_pu_calibration(request: SPYTuneRequest, user: AuthUser = Depends(
     if request.spy_threshold is not None:
         risk_engine.pu_engine.spy_threshold_ = float(max(0.001, min(0.999, request.spy_threshold)))
 
-    # Persist updated PU engine object and pu_metrics.json
+    
     try:
         pu_path = os.path.join(risk_engine.models_dir, "pu_engine.pkl")
         os.makedirs(risk_engine.models_dir, exist_ok=True)
@@ -460,7 +485,7 @@ async def tune_pu_calibration(request: SPYTuneRequest, user: AuthUser = Depends(
         data["spy_threshold"] = new_spy
         if "spy_statistics" in data and isinstance(data["spy_statistics"], dict):
             data["spy_statistics"]["spy_threshold"] = new_spy
-    data["last_tuning_timestamp"] = pd.Timestamp.utcnow().isoformat() + "Z"
+    data["last_tuning_timestamp"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     try:
         with open(pu_json_path, "w", encoding="utf-8") as f:
@@ -542,4 +567,41 @@ async def simulate_adversarial_shift_endpoint(
     except Exception as e:
         logger.error(f"Adversarial shift simulation failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Adversarial shift simulation error: {str(e)}")
+
+from app.services.mule_similarity import similarity_engine
+
+@router.get("/similar-cases/{alert_id}", tags=["Model Analytics"], dependencies=[Depends(verify_api_key), Depends(rate_limiter(40, 60, "similar-cases"))])
+async def get_similar_cases(alert_id: str, top_n: int = Query(5, ge=1, le=50), user: AuthUser = Depends(verify_api_key), db: Session = Depends(get_db)):
+    target = db.query(AlertModel).filter(AlertModel.id == alert_id).first()
+    if not target or not target.features:
+        raise HTTPException(status_code=404, detail="Alert not found or has no stored feature vector.")
+        
+    try:
+        target_features = json.loads(target.features)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Stored feature vector could not be parsed.")
+        
+    similar_cases_out = similarity_engine.find_similar(target_features, top_n=top_n, exclude_id=alert_id)
+    
+    if not similar_cases_out:
+        return {"target_alert": alert_id, "similar_cases": [], "note": "No similar cases found in precomputed matrix."}
+        
+    return {
+        "target_alert": alert_id,
+        "similar_cases": similar_cases_out
+    }
+
+@router.get("/bias-audit", tags=["Model Analytics"], dependencies=[Depends(verify_api_key)])
+async def get_bias_audit():
+    
+    audit_path = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bias_audit.json"))
+    if os.path.exists(audit_path):
+        try:
+            with open(audit_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load bias_audit.json: {e}")
+            raise HTTPException(status_code=500, detail="Failed to parse bias audit.")
+    raise HTTPException(status_code=404, detail="Bias audit not found.")
+
 

@@ -13,7 +13,7 @@ interface NetworkGraphProps {
 export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const networkRef = useRef<Network | null>(null);
-  // Keep stable DataSet references so vis-network updates nodes in-place (no position scramble)
+  
   const nodesDataRef = useRef<InstanceType<typeof DataSet> | null>(null);
   const edgesDataRef = useRef<InstanceType<typeof DataSet> | null>(null);
   const [loading, setLoading] = useState(false);
@@ -22,7 +22,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
 
   const isDark = theme !== 'sovereign';
 
-  // Fetch only when alertId changes — never on theme change
+  
   useEffect(() => {
     const fetchCorrelation = async () => {
       setLoading(true);
@@ -40,7 +40,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
     }
   }, [alertId]);
 
-  // Build graph only when DATA changes (not theme). Theme changes call updateNodeColors() below.
+  
   useEffect(() => {
     if (containerRef.current && data) {
       const nodesMap = new Map<string, any>();
@@ -49,7 +49,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
       const labelColor = isDark ? '#ffffff' : '#0f1c22';
       const edgeColor = isDark ? '#4cd7f6' : '#006880';
       const edgeColorDim = isDark ? '#64748b' : '#6f8a97';
-      // Helper to add Account nodes
+      
       const addAccountNode = (id: string, labelPrefix: string) => {
         if (!nodesMap.has(id)) {
           const isUnknown = !id || id.includes('SENDER') || id.includes('RECEIVER');
@@ -69,7 +69,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
       const targetSenderId = data.target_sender || `${data.target_alert}-SENDER`;
       const targetReceiverId = data.target_receiver || `${data.target_alert}-RECEIVER`;
 
-      // 1. Central Investigation Event Node
+      
       nodesMap.set(data.target_alert, {
         id: data.target_alert,
         label: `Flagged Transaction:\n${data.target_alert}`,
@@ -80,7 +80,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
         title: `Investigation Event ID: ${data.target_alert}`
       });
 
-      // Connect Target Alert to its sender and receiver
+      
       addAccountNode(targetSenderId, 'Origin Account');
       addAccountNode(targetReceiverId, 'Destination Account');
       
@@ -101,7 +101,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
         arrows: { to: { enabled: true, scaleFactor: 0.5 } }
       });
 
-      // 2. Map Related Entities
+      
       if (data.related_entities && data.related_entities.length > 0) {
         data.related_entities.forEach((entity) => {
           const amtText = entity.amount ? `\n₹${entity.amount.toLocaleString('en-IN')}` : '';
@@ -141,7 +141,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
             arrows: { to: { enabled: true, scaleFactor: 0.5 } }
           });
 
-          // Draw explicit simulated behavioral links if bridge_entity is a behavioral heuristic
+          
           if (entity.bridge_entity && (entity.bridge_entity.includes('PATTERN') || entity.bridge_entity.includes('BAND'))) {
             const bridgeId = entity.bridge_entity;
             if (!nodesMap.has(bridgeId)) {
@@ -178,19 +178,20 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
       const nodesArray = Array.from(nodesMap.values());
 
       if (networkRef.current && nodesDataRef.current && edgesDataRef.current) {
-        // Graph already exists for this alert — just update the datasets in-place (preserves positions)
+        
         nodesDataRef.current.clear();
         nodesDataRef.current.add(nodesArray);
         edgesDataRef.current.clear();
         edgesDataRef.current.add(edges);
       } else {
-        // First render for this alert — create fresh Network
+        
         const ds_nodes = new DataSet(nodesArray);
         const ds_edges = new DataSet(edges);
         nodesDataRef.current = ds_nodes;
         edgesDataRef.current = ds_edges;
 
         const options: any = {
+          layout: { randomSeed: 42 },
           physics: {
             enabled: physicsEnabled,
             stabilization: true,
@@ -213,24 +214,24 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
         }
       };
     }
-  // isDark intentionally excluded — theme changes are handled by updateNodeColors() to avoid position scramble
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  
+  
   }, [data]);
 
-  // When theme changes, update node/edge colors IN-PLACE without rebuilding (no position scramble)
+  
   useEffect(() => {
     if (!networkRef.current || !nodesDataRef.current || !edgesDataRef.current || !data) return;
 
     const labelColor = isDark ? '#ffffff' : '#0f1c22';
     const edgeColor = isDark ? '#4cd7f6' : '#006880';
 
-    // Update target alert node color
+    
     nodesDataRef.current.update({
       id: data.target_alert,
       color: { background: '#ef4444', border: '#b91c1c' } as any,
     });
 
-    // Update all entity nodes border colors
+    
     if (data.related_entities) {
       data.related_entities.forEach((entity) => {
         nodesDataRef.current!.update({
@@ -243,7 +244,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
       });
     }
 
-    // Update edge colors
+    
     const allEdges = edgesDataRef.current.get();
     edgesDataRef.current.update(
       allEdges.map((e: any) => ({
@@ -277,7 +278,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
   const togglePhysics = () => {
     const next = !physicsEnabled;
     setPhysicsEnabled(next);
-    // BUG-001 FIX: Use native vis-network setOptions instead of triggering full graph rebuild
+    
     if (networkRef.current) {
       networkRef.current.setOptions({ physics: { enabled: next } });
     }
@@ -286,7 +287,10 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
   if (loading) {
     return (
       <div className="stitch-glass-card border border-outline-variant rounded-xl p-6 w-full flex flex-col items-center justify-center min-h-[320px] text-on-surface-variant text-sm animate-pulse">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mb-3"></div>
+        <div className="relative mb-3 flex items-center justify-center w-10 h-10">
+          <div className="absolute inset-0 border-[3px] border-primary border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-xl font-bold text-primary">₹</span>
+        </div>
         Running multi-hop graph correlation, ring detection & structuring analysis...
       </div>
     );
@@ -301,7 +305,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
       isDark ? 'bg-surface-container-low border-outline-variant text-slate-200' : 'bg-white border-[#c4c5d5] text-slate-800'
     }`}>
       <div className="flex flex-col gap-3 border-b border-outline-variant/30 pb-3">
-        {/* Title Row */}
+        {}
         <div className="flex items-center gap-2 w-full min-w-0">
           <svg className="w-4 h-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
@@ -311,7 +315,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({ alertId, theme }) =>
           </h3>
         </div>
 
-        {/* Interactive Controls & Badges Row */}
+        {}
         <div className="flex flex-wrap items-center justify-between gap-2 w-full">
           {summary && (
             <div className="flex items-center gap-1.5 text-[11px] font-mono font-bold mr-2">

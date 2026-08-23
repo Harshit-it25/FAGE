@@ -34,7 +34,7 @@ export function mapApiAlert(a: AlertInfo): Alert {
   const timestampVal = a.timestamp
     ? new Date(a.timestamp).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
     : 'Recent';
-  const isoTimestamp = a.timestamp || null; // BUG-002 FIX: preserve raw ISO for safe Date parsing
+  const isoTimestamp = a.timestamp || null; 
   const amount = a.amount || 0;
 
   const rawDrivers = Array.isArray(explainability?.key_risk_drivers) ? explainability.key_risk_drivers : [];
@@ -46,7 +46,8 @@ export function mapApiAlert(a: AlertInfo): Alert {
         : typeof d.importanceScore === 'number'
           ? d.importanceScore
           : 0;
-    const direction = d.direction || (val > 0 ? 'increases_risk' : 'reduces_risk'); // BUG-006 FIX: val===0 is neutral, not risk-increasing
+    const direction = d.direction ||
+      (val > 0 ? 'increases_risk' : val < 0 ? 'reduces_risk' : 'increases_risk');
     return {
       feature: d.feature || 'unknown_feature',
       importance_attribution: val,
@@ -66,7 +67,7 @@ export function mapApiAlert(a: AlertInfo): Alert {
     confidence: confidenceLabel === 'Unavailable' ? 'Unavailable' : `${confidenceLabel} (${confidencePercent}%)`,
     confidenceVal: confidencePercent,
     status: (a.status || 'Open') as Alert['status'],
-    dateOpened: isoTimestamp || undefined, // BUG-002 FIX: store raw ISO for accurate Date parsing in workbench
+    dateOpened: isoTimestamp || undefined, 
     timestamp: timestampVal,
     transactionAmount: amount,
     prio: a.priority_tier || customPrio,

@@ -1,0 +1,50 @@
+{
+    "XGBoost": {
+        "n_estimators": 100,
+        "max_depth": 4,
+        "learning_rate": 0.1,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 1.0,
+        "min_child_weight": 1,
+        "eval_metric": "logloss",
+        "scale_pos_weight": 109.93333333333334
+    },
+    "LightGBM": {
+        "n_estimators": 200,
+        "max_depth": 4,
+        "learning_rate": 0.05,
+        "num_leaves": 15,
+        "subsample": 0.8,
+        "colsample_bytree": 0.7,
+        "reg_lambda": 3.0,
+        "min_child_samples": 15,
+        "verbose": -1,
+        "scale_pos_weight": 109.93333333333334
+    },
+    "RandomForest": {
+        "n_estimators": 100,
+        "max_depth": 8,
+        "min_samples_split": 5,
+        "class_weight": "balanced"
+    },
+    "ExtraTrees": {
+        "n_estimators": 100,
+        "max_depth": 8,
+        "min_samples_split": 5,
+        "class_weight": "balanced"
+    },
+    "LogisticRegression": {
+        "C": 0.1,
+        "penalty": "l2",
+        "solver": "lbfgs"
+    },
+    "Ensemble": {
+        "voting": "soft",
+        "estimators": [
+            "XGBoost",
+            "LightGBM",
+            "RandomForest"
+        ]
+    }
+}

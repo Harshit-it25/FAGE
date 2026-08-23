@@ -21,15 +21,14 @@ describe('LoginView', () => {
 
   it('renders login form correctly', () => {
     const { container } = render(<LoginView />);
-    
-    expect(screen.getByText('FAGE Workbench')).toBeInTheDocument();
+
+        expect(screen.getByText('FAGE Workbench')).toBeInTheDocument();
     expect(screen.getByText('Sign in to continue')).toBeInTheDocument();
-    
-    // Check fields are populated with defaults
+
     const usernameInput = container.querySelector('input:not([type="password"])');
     const passwordInput = container.querySelector('input[type="password"]');
-    
-    expect(usernameInput).toHaveValue('admin');
+
+        expect(usernameInput).toHaveValue('admin');
     expect(passwordInput).toHaveValue('admin123');
     expect(screen.getByRole('button', { name: /Sign in/i })).toBeInTheDocument();
   });
@@ -37,8 +36,8 @@ describe('LoginView', () => {
   it('submitting the form calls login with provided credentials', async () => {
     const user = userEvent.setup();
     const { container } = render(<LoginView />);
-    
-    const usernameInput = container.querySelector('input:not([type="password"])') as HTMLInputElement;
+
+        const usernameInput = container.querySelector('input:not([type="password"])') as HTMLInputElement;
     const passwordInput = container.querySelector('input[type="password"]') as HTMLInputElement;
     const submitBtn = screen.getByRole('button', { name: /Sign in/i });
 
@@ -46,8 +45,8 @@ describe('LoginView', () => {
     await user.type(usernameInput, 'testuser');
     await user.clear(passwordInput);
     await user.type(passwordInput, 'testpass');
-    
-    await act(async () => {
+
+        await act(async () => {
       await user.click(submitBtn);
     });
 
@@ -57,12 +56,12 @@ describe('LoginView', () => {
   it('displays error message on login failure', async () => {
     const user = userEvent.setup();
     mockLogin.mockRejectedValueOnce(new Error('Invalid credentials'));
-    
-    render(<LoginView />);
-    
-    const submitBtn = screen.getByRole('button', { name: /Sign in/i });
-    
-    await act(async () => {
+
+        render(<LoginView />);
+
+        const submitBtn = screen.getByRole('button', { name: /Sign in/i });
+
+        await act(async () => {
       await user.click(submitBtn);
     });
 

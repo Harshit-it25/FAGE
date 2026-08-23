@@ -11,7 +11,7 @@ class GuardrailsManager:
 
     def _initialize(self):
         try:
-            # Load the configuration from the current directory (config/)
+            
             config_dir = os.path.join(os.path.dirname(__file__), "config")
             config = RailsConfig.from_path(config_dir)
             self.rails = LLMRails(config)
@@ -27,10 +27,10 @@ class GuardrailsManager:
             raise RuntimeError("NeMo Guardrails not initialized")
 
         try:
-            # NeMo Guardrails requires chat history format for its generate_async method
+            
             messages = [{"role": "user", "content": prompt}]
             
-            # This calls the NVIDIA NIM LLM via the defined config.yml and runs the colang flows.
+            
             response = await self.rails.generate_async(messages=messages)
             
             return response["content"]
@@ -38,5 +38,5 @@ class GuardrailsManager:
             logger.error(f"Guardrails generation error: {e}")
             raise
 
-# Global instance to be used by the application
+
 guardrails_manager = GuardrailsManager()

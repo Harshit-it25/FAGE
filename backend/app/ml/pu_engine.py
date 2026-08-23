@@ -92,10 +92,10 @@ class FAGEPUEngine:
         
         if method == "median":
             c = float(np.median(pos_probs))
-        else:  # elkan_noto
+        else:  
             c = float(np.mean(pos_probs))
             
-        # Clamp c to ensure stability against division errors
+        
         c = max(0.05, min(1.0, c))
         logger.info(f"Estimated PU label frequency factor c = {c:.4f} (using {method} on {len(pos_probs)} positive examples).")
         return c
@@ -146,18 +146,18 @@ class FAGEPUEngine:
 
         clean_label = label.strip().lower()
         if clean_label in ["true positive", "mule ring", "confirmed fraud", "suspicious"]:
-            # Discovering hidden positive updates the empirical discovery probability estimate c = P(s=1|y=1)
-            # If the discovered positive had raw probability `score`, incorporate into c moving average
+            
+            
             new_c = old_c * (1.0 - learning_rate) + max(0.05, min(1.0, score)) * learning_rate
             new_c = max(0.05, min(1.0, new_c))
-            # If the true positive had a score lower than or near spy_threshold, relax spy_threshold slightly
+            
             if new_spy is not None and score < new_spy + 0.05:
                 new_spy = max(0.01, new_spy * 0.96)
         elif clean_label in ["false positive", "legitimate", "clear", "false_positive"]:
-            # False alarm at high probability implies reliable negative threshold tau should tighten upward
+            
             if new_spy is not None and score > new_spy:
                 new_spy = min(0.95, new_spy * (1.0 + learning_rate * 0.5))
-            # Slightly tighten c factor
+            
             new_c = max(0.05, min(1.0, old_c * 0.995))
 
         self.c_estimate_ = float(new_c)
@@ -221,25 +221,25 @@ class FAGEPUEngine:
         n_spies = max(2, int(len(pos_indices) * self.spy_rate))
         spy_indices = np.random.choice(pos_indices, size=n_spies, replace=False)
         
-        # Create modified spy labels vector
+        
         s_spy = s_array.copy()
         s_spy[spy_indices] = 0
         
-        # Train spy classifier
+        
         spy_model = clone(base_model)
         spy_model.fit(X, s_spy)
         
-        # Predict probabilities
+        
         if hasattr(spy_model, "predict_proba"):
             probs = spy_model.predict_proba(X)[:, 1]
         else:
             probs = spy_model.predict(X)
             
-        # Analyze spy scores to find safety threshold
+        
         spy_probs = probs[spy_indices]
         spy_threshold = float(np.percentile(spy_probs, self.spy_tolerance_percentile))
         
-        # Identify reliable negatives among originally unlabeled examples
+        
         rn_mask = (s_array == 0) & (probs < spy_threshold)
         self.spy_threshold_ = spy_threshold
         self.reliable_negatives_mask_ = rn_mask
@@ -273,7 +273,7 @@ def calculate_psi(baseline_arr: np.ndarray, current_arr: np.ndarray, num_bins: i
     if len(baseline_clean) == 0 or len(current_clean) == 0:
         return 0.0
 
-    # Create quantiles from baseline
+    
     quantiles = np.linspace(0, 100, num_bins + 1)
     bins = np.percentile(baseline_clean, quantiles)
     bins[0] = -np.inf
@@ -373,12 +373,12 @@ class FAGEAdaptiveEngine:
         if shift_type == "micro_structuring":
             feature_name = "transaction_amount"
             baseline_arr = rng.normal(5000.0, 1500.0, 500)
-            # Attackers cluster amounts just under the $9k reporting threshold as intensity rises.
+            
             current_arr = rng.normal(9000.0 - 500.0 * (1.0 - intensity), 300.0, 500)
         elif shift_type == "dormant_mule_ring":
             feature_name = "transfer_velocity_6h"
             baseline_arr = rng.normal(5.0, 1.5, 500)
-            # Mule accounts go dormant, then activate in bursts — velocity collapses toward zero.
+            
             current_arr = rng.normal(max(0.1, 5.0 - 4.5 * intensity), 0.5, 500)
         else:
             feature_name = "generic_feature"

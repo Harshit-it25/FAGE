@@ -1,0 +1,31 @@
+{
+  "status": "success",
+  "audit_timestamp": "2026-08-19T00:00:00Z",
+  "flagged_features": [
+    {
+      "feature_name": "City_ID",
+      "issue": "High Cardinality",
+      "cardinality": 2450,
+      "target_drift_risk": "HIGH",
+      "action_taken": "EXCLUDED",
+      "reason": "Avoids catastrophic bias flaw and state memorization in geographic areas."
+    },
+    {
+      "feature_name": "Branch_Code",
+      "issue": "High Cardinality",
+      "cardinality": 1850,
+      "target_drift_risk": "HIGH",
+      "action_taken": "EXCLUDED",
+      "reason": "Prevents model from profiling specific micro-demographics at physical locations."
+    },
+    {
+      "feature_name": "Device_Type",
+      "issue": "Distribution Shift",
+      "cardinality": 120,
+      "target_drift_risk": "HIGH",
+      "action_taken": "EXCLUDED",
+      "reason": "Extreme concept drift observed during backtesting. Hardware profiles change too rapidly."
+    }
+  ],
+  "summary": "Feature selection safely excluded 3 high-cardinality categorical features that demonstrated catastrophic bias potential, ensuring equitable and robust inference."
+}

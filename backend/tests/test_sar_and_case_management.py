@@ -5,9 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.main import api_app as app
+from app.main import app as app
 
-client = TestClient(app)
+client = TestClient(app, base_url="http://testserver/api")
 
 
 def _login(username: str, password: str) -> dict:
@@ -63,7 +63,7 @@ def test_case_log_ignores_client_supplied_operator_name():
     )
     assert resp.status_code == 200
     latest_log = resp.json()["alert"]["logs"][-1]
-    # Attribution must come from the authenticated identity, never the request body.
+    
     assert latest_log["operator"] == "SOC Analyst"
     assert "FAKE_CEO_SPOOF" not in latest_log["operator"]
 
@@ -86,9 +86,10 @@ def test_risk_score_duplicate_transaction_id_does_not_duplicate_alert():
     second = client.post("/risk-score", json=payload, headers=admin_headers)
     assert second.status_code == 200
 
-    # Whether or not the score crossed the alert-worthy threshold, re-scoring the
-    # same transaction_id must never raise or silently create a second alert row.
+    
+    
     first_alert_id = first.json()["scorecard"].get("associated_alert_id")
     second_alert_id = second.json()["scorecard"].get("associated_alert_id")
     if first_alert_id is not None:
         assert second_alert_id == first_alert_id
+

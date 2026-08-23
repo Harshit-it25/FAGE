@@ -1,7 +1,13 @@
 import os
 os.environ.setdefault("FAGE_ENV", "test")
-# Isolate tests from the real demo database (fage_alerts.db) -- previously, running pytest
-# inserted real TXN-TEST-*/TXN-DUP-* rows directly into the live demo DB used for the actual
-# hackathon demo, silently polluting it on every CI run. Must be set before any app module
-# (which reads DATABASE_URL at import time) is imported.
-os.environ.setdefault("DATABASE_URL", "sqlite:///./fage_alerts_test.db")
+os.environ["DATABASE_URL"] = "sqlite:///./fage_alerts_test.db"
+
+import pytest
+from app.db import Base, engine, ensure_schema_columns
+
+@pytest.fixture(autouse=True, scope="session")
+def setup_db_session():
+    # Ensure a completely pristine test database per test session
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    ensure_schema_columns(engine)

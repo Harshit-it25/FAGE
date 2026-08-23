@@ -13,7 +13,8 @@ import {
   Sun, 
   Moon, 
   Settings, 
-  LogOut 
+  LogOut,
+  Database
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -35,7 +36,7 @@ interface SidebarProps {
   userRole?: string;
 }
 
-// Shared easing — ease-out-quart, premium feel, zero bounce
+
 const EASE: [number, number, number, number] = [0.25, 0.46, 0.45, 0.94];
 
 export default function Sidebar({
@@ -64,6 +65,7 @@ export default function Sidebar({
 
 
     { id: 'alerts' as ViewMode,        label: 'Alerts Queue',            icon: Bell },
+    { id: 'dp-ledger' as ViewMode,     label: 'DP Audit Ledger',         icon: Database },
   ];
 
   const isDark = theme === 'analytics';
@@ -71,7 +73,7 @@ export default function Sidebar({
   return (
     <aside className="fixed left-0 top-0 h-full flex flex-col p-4 z-40 bg-surface-container-low border-r border-outline-variant w-64 shrink-0">
 
-      {/* ── Brand Header ─────────────────────────────── */}
+      {}
       <div className="mb-8 px-2 flex items-center gap-3">
         <div className="relative w-9 h-9 shrink-0">
           <div className="absolute inset-0 rounded-lg bg-primary/20 flex items-center justify-center">
@@ -81,7 +83,7 @@ export default function Sidebar({
               <line x1="28.5" y1="26" x2="31" y2="28.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" className="text-primary" />
             </svg>
           </div>
-          {/* Online indicator dot */}
+          {}
           <span
             className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-surface-container-low ${
               isBackendOnline ? 'bg-primary' : 'bg-error'
@@ -96,7 +98,7 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* ── Navigation ───────────────────────────────── */}
+      {}
       <nav className="flex-1 space-y-0.5">
         {menuItems.map(item => {
           const isActive = currentView === item.id;
@@ -110,7 +112,7 @@ export default function Sidebar({
               className="relative w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-label text-label-sm cursor-pointer select-none outline-none"
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
-              {/* Animated background pill — morphs smoothly between active items */}
+              {}
               {isActive && (
                 <motion.span
                   layoutId="nav-active-pill"
@@ -118,14 +120,14 @@ export default function Sidebar({
                   transition={{ duration: 0.22, ease: EASE }}
                 />
               )}
-              {/* Icon */}
+              {}
               <item.icon
                 size={20}
                 className={`relative transition-colors duration-150 z-10 ${
                   isActive ? 'text-on-secondary-container' : 'text-on-surface-variant'
                 }`}
               />
-              {/* Label */}
+              {}
               <span
                 className={`relative transition-colors duration-150 z-10 flex-1 text-left ${
                   isActive ? 'text-on-secondary-container font-bold' : 'text-on-surface-variant'
@@ -143,10 +145,10 @@ export default function Sidebar({
         })}
       </nav>
 
-      {/* ── Footer Controls ──────────────────────────── */}
+      {}
       <div className="mt-auto pt-4 border-t border-outline-variant space-y-3">
 
-        {/* Data stream selector */}
+        {}
         <motion.div whileTap={{ scale: 0.98 }} transition={{ duration: 0.12, ease: EASE }}>
           <select
             value={dataSource}
@@ -180,7 +182,7 @@ export default function Sidebar({
               {isDark ? 'Sovereign Mode' : 'Analytics Mode'}
             </span>
           </div>
-          {/* Toggle pill with motion-animated thumb */}
+          {}
           <div
             className={`relative w-9 h-5 rounded-full transition-colors duration-300 ${
               isDark ? 'bg-surface-container-highest' : 'bg-primary'
@@ -196,7 +198,7 @@ export default function Sidebar({
           </div>
         </motion.button>
 
-        {/* Action buttons */}
+        {}
         <div className="space-y-0.5">
           <motion.button
             whileTap={{ scale: 0.97, opacity: 0.85 }}

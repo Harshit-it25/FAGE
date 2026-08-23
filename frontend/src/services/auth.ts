@@ -1,16 +1,11 @@
 import { apiClient } from './api';
 
-const TOKEN_KEY = 'fage_access_token';
 const USER_KEY = 'fage_user';
 
 export interface AuthUser {
   username: string;
   role: string;
   display_name: string;
-}
-
-export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
 }
 
 export function getStoredUser(): AuthUser | null {
@@ -23,22 +18,16 @@ export function getStoredUser(): AuthUser | null {
   }
 }
 
-export function setSession(token: string, user: AuthUser) {
-  localStorage.setItem(TOKEN_KEY, token);
+export function setSessionUser(user: AuthUser) {
   localStorage.setItem(USER_KEY, JSON.stringify(user));
-  apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 }
 
-export function clearSession() {
-  localStorage.removeItem(TOKEN_KEY);
+export async function clearSession() {
   localStorage.removeItem(USER_KEY);
-  delete apiClient.defaults.headers.common['Authorization'];
-}
-
-export function bootstrapAuthHeaders() {
-  const token = getStoredToken();
-  if (token) {
-    apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  try {
+    await apiClient.post('/logout');
+  } catch (e) {
+    // Ignore logout errors
   }
 }
 
@@ -54,6 +43,6 @@ export async function loginRequest(username: string, password: string) {
   }>('/token', formData, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   });
-  setSession(response.data.access_token, response.data.user);
+  setSessionUser(response.data.user);
   return response.data;
 }

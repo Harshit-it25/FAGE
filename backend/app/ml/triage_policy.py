@@ -66,11 +66,11 @@ class FAGETriagePolicy:
         Returns:
             Dictionary containing triage_action, priority_tier, confidence_width, and rationale.
         """
-        # Calculate uncertainty width
+        
         ci_width = float(abs(ci_upper - ci_lower))
         effective_score = risk_score
         
-        # Determine Triage Action and Priority Tier
+        
         if effective_score >= self.high_risk_threshold:
             if evadable:
                 action = "INDEPENDENT_SIGNAL_CHECK"
@@ -98,7 +98,7 @@ class FAGETriagePolicy:
                 priority = "Medium"
                 rationale = "Medium risk score requiring compliance investigation."
         else:
-            # Low risk (< 50)
+            
             if ci_width >= self.ci_uncertainty_threshold and effective_score >= 35.0:
                 action = "PRIORITY_MANUAL_REVIEW"
                 priority = "Medium"

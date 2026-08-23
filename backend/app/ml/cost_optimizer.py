@@ -81,7 +81,7 @@ class FAGECostOptimizer:
         """
         preds = (y_prob >= threshold).astype(int)
         
-        # Calculate confusion matrix
+        
         if len(np.unique(y_true)) > 1:
             tn, fp, fn, tp = confusion_matrix(y_true, preds).ravel()
         else:
@@ -90,8 +90,8 @@ class FAGECostOptimizer:
             fn = int(np.sum((preds == 0) & (y_true == 1)))
             tn = int(np.sum((preds == 0) & (y_true == 0)))
             
-        # Under PU learning where unconfirmed accounts may be undiscovered mules,
-        # true FN cost is scaled by 1/c for unconfirmed positives if calibrated
+        
+        
         total_cost = (fn * self.c_fn) + (fp * self.c_fp)
         cost_per_account = total_cost / max(1, len(y_true))
         
@@ -120,9 +120,9 @@ class FAGECostOptimizer:
         """
         Sweeps across probability thresholds to identify cost-optimal operating points.
         """
-        # Sweep starts at 0.001, not 0.01: with a ~0.9% positive rate and a 323x FN/FP cost
-        # ratio, the true cost-minimizing threshold can legitimately sit below 0.01 -- a floor
-        # of 0.01 silently excludes that region from consideration entirely.
+        
+        
+        
         thresholds = np.concatenate([np.linspace(0.001, 0.01, 10), np.linspace(0.02, 0.99, 98)])
         curve = []
         for t in thresholds:
@@ -132,22 +132,21 @@ class FAGECostOptimizer:
         self.cost_curve_ = curve
         n_total = len(y_true)
 
-        # 1. Balanced: minimum cost among thresholds that keep total flagged volume (TP+FP)
-        # within reviewable capacity (max_flag_rate). Falls back to the global cost-minimum
-        # only if nothing satisfies the cap (shouldn't happen in practice).
-        within_capacity = [c for c in curve if (c["tp"] + c["fp"]) / max(1, n_total) <= self.max_flag_rate]
-        balanced = min(within_capacity, key=lambda x: x["total_cost_inr"]) if within_capacity else \
-            min(curve, key=lambda x: x["total_cost_inr"])
         
-        # 2. Conservative: High precision (P > 0.8), minimizes false positives while retaining some recall
-        # fallback to max precision if none > 0.8
+        
+        
+        within_capacity = [c for c in curve if (c["tp"] + c["fp"]) / max(1, n_total) <= self.max_flag_rate]
+        balanced = min(within_capacity, key=lambda x: x["total_cost_inr"]) if within_capacity else            min(curve, key=lambda x: x["total_cost_inr"])
+        
+        
+        
         high_prec = [c for c in curve if c["precision"] >= 0.8]
         if high_prec:
             conservative = max(high_prec, key=lambda x: x["recall"])
         else:
             conservative = max(curve, key=lambda x: x["precision"])
             
-        # 3. Aggressive: High recall (R > 0.9) to catch max mules, accepting higher cost
+        
         high_rec = [c for c in curve if c["recall"] >= 0.9]
         if high_rec:
             aggressive = max(high_rec, key=lambda x: x["precision"])

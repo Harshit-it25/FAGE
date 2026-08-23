@@ -69,9 +69,9 @@ class FAGEShapInteractionEngine:
                 explainer = shap.TreeExplainer(self.model)
                 interactions = explainer.shap_interaction_values(eval_data)
                 
-                # Check dimensions of returned interaction tensor
+                
                 if isinstance(interactions, list):
-                    interactions = interactions[1]  # positive class for binary classifier
+                    interactions = interactions[1]  
                 elif len(interactions.shape) == 4:
                     interactions = interactions[:, :, :, 1]
                     
@@ -83,7 +83,7 @@ class FAGEShapInteractionEngine:
         else:
             logger.info("SHAP not installed. Using empirical sensitivity correlation fallback proxy.")
             
-        # Fallback proxy: calculate sensitivity of model predictions when feature pairs are perturbed
+        
         mean_abs_matrix = np.zeros((n_features, n_features))
         try:
             if hasattr(self.model, "predict_proba"):
@@ -91,7 +91,7 @@ class FAGEShapInteractionEngine:
             else:
                 base_preds = self.model.predict(eval_data)
                 
-            # Compute empirical covariance between feature changes and prediction deviation
+            
             corr = eval_data.corr().abs().fillna(0).values
             feature_stds = eval_data.std().values
             for i in range(n_features):

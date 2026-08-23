@@ -12,9 +12,6 @@ import {
   AlertUpdateRequest,
 } from '../services/api';
 
-/**
- * Custom Hook: Fetches aggregated dashboard telemetry metrics.
- */
 export function useDashboardSummary() {
   const [data, setData] = useState<DashboardTelemetryResponse['telemetry'] | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -42,9 +39,6 @@ export function useDashboardSummary() {
   return { data, loading, error, refetch: fetchSummary };
 }
 
-/**
- * Custom Hook: Fetches all performance evaluation indicators across models.
- */
 export function useModelMetrics() {
   const [data, setData] = useState<ModelMetricsResponse['models'] | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -70,9 +64,6 @@ export function useModelMetrics() {
   return { data, loading, error, refetch: fetchMetrics };
 }
 
-/**
- * Custom Hook: Fetches global Shapley feature importance metrics and beeswarm coordinates.
- */
 export function useFeatureImportance() {
   const [data, setData] = useState<FeatureImportanceResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -100,9 +91,6 @@ export function useFeatureImportance() {
 
 
 
-/**
- * Custom Hook: Triggers combined ML and policy risk decisions (Risk Assessment Mutation).
- */
 export function useRiskScore() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -131,39 +119,59 @@ export function useRiskScore() {
   return { evaluate, result, loading, error, reset };
 }
 
-/**
- * Custom Hook: Fetches, indexes, and queries incident alert queues with reactive polling.
- */
 export function useAlerts(filters?: {
   status_filter?: string;
   severity_filter?: string;
+  source_filter?: 'all' | 'target' | 'dataset';
+  search?: string;
+  assigned_to?: string;
+  min_score?: number;
+  max_score?: number;
   limit?: number;
+  offset?: number;
+  enabled?: boolean;
 }) {
   const [alerts, setAlerts] = useState<AlertInfo[]>([]);
   const [count, setCount] = useState<number>(0);
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isReachable, setIsReachable] = useState<boolean>(false);
 
   const status_filter = filters?.status_filter;
   const severity_filter = filters?.severity_filter;
+  const source_filter = filters?.source_filter;
+  const search = filters?.search;
+  const assigned_to = filters?.assigned_to;
+  const min_score = filters?.min_score;
+  const max_score = filters?.max_score;
   const limit = filters?.limit;
+  const offset = filters?.offset;
+  const enabled = filters?.enabled ?? true;
 
   const isFetchingRef = useRef(false);
 
   const fetchAlerts = useCallback(async (isSilent: boolean = false) => {
+    if (!enabled) return;
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
       if (!isSilent) setLoading(true);
-      if (!isSilent) setError(null); // BUG-007 FIX: don't clear error on silent poll — prevents flash-off every 60s
+      if (!isSilent) setError(null);
       const res = await fageApi.listAlertsQueue({
         status_filter,
         severity_filter,
+        source_filter,
+        search,
+        assigned_to,
+        min_score,
+        max_score,
         limit,
+        offset,
       });
       setAlerts(res.alerts);
       setCount(res.alerts_count);
+      setTotalCount(res.total_count);
       setIsReachable(true);
     } catch (err: any) {
       setError(err?.message || 'Failed to fetch alerts queue');
@@ -172,20 +180,104 @@ export function useAlerts(filters?: {
       if (!isSilent) setLoading(false);
       isFetchingRef.current = false;
     }
-  }, [status_filter, severity_filter, limit]);
+  }, [status_filter, severity_filter, source_filter, search, assigned_to, min_score, max_score, limit, offset, enabled]);
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     fetchAlerts(false);
+    
     const interval = setInterval(() => fetchAlerts(true), 60000);
-    return () => clearInterval(interval);
-  }, [fetchAlerts]);
+    
+    let sse: EventSource | null = null;
+    try {
+      sse = fageApi.connectAlertStream();
+      sse.onmessage = (event) => {
+        fetchAlerts(true);
+      };
+      sse.onerror = (err) => {
+        console.warn('SSE stream error, falling back to polling.', err);
+        sse?.close();
+      };
+    } catch (e) {
+      console.warn('Failed to setup SSE stream', e);
+    }
 
-  return { alerts, count, loading, error, isReachable, refetch: fetchAlerts };
+    return () => {
+      clearInterval(interval);
+      if (sse) sse.close();
+    };
+  }, [fetchAlerts, enabled]);
+
+  return { alerts, count, totalCount, loading, error, isReachable, refetch: fetchAlerts };
 }
 
-/**
- * Custom Hook: Applies updates and inputs case notes to individual triggers (Alert Mutation).
- */
+export function useAlertById(alertId: string | undefined) {
+  const [alert, setAlert] = useState<AlertInfo | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchAlert = useCallback(async () => {
+    if (!alertId) {
+      setAlert(null);
+      return;
+    }
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fageApi.getAlertById(alertId);
+      setAlert(res.alert);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to fetch alert');
+      setAlert(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [alertId]);
+
+  useEffect(() => {
+    fetchAlert();
+  }, [fetchAlert]);
+
+  return { alert, loading, error, refetch: fetchAlert };
+}
+
+export function usePaginatedAlerts(options: {
+  status_filter?: string;
+  severity_filter?: string;
+  source_filter?: 'all' | 'target' | 'dataset';
+  search?: string;
+  assigned_to?: string;
+  min_score?: number;
+  max_score?: number;
+  page: number;
+  pageSize: number;
+  enabled?: boolean;
+  refreshKey?: number;
+}) {
+  const { page, pageSize, enabled = true, refreshKey = 0, ...filters } = options;
+  const offset = (page - 1) * pageSize;
+
+  const { alerts, totalCount, loading, error, refetch } = useAlerts({
+    ...filters,
+    limit: pageSize,
+    offset,
+    enabled,
+  });
+
+  useEffect(() => {
+    if (enabled && refreshKey > 0) {
+      refetch(false);
+    }
+  }, [refreshKey, enabled, refetch]);
+
+  const totalPages = Math.ceil(totalCount / pageSize) || 1;
+
+  return { alerts, totalCount, totalPages, loading, error, refetch };
+}
+
 export function useUpdateAlert() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -214,9 +306,6 @@ export function useUpdateAlert() {
   return { updateAlert, updatedAlert, loading, error, reset };
 }
 
-/**
- * Custom Hook: Fetches cost-sensitive threshold optimization metrics.
- */
 export function useCostThresholds() {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -242,9 +331,6 @@ export function useCostThresholds() {
   return { data, loading, error, refetch: fetchCostThresholds };
 }
 
-/**
- * Custom Hook: Fetches PU calibration metrics and label frequency estimates.
- */
 export function usePUCalibration() {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -270,9 +356,6 @@ export function usePUCalibration() {
   return { data, loading, error, refetch: fetchPUCalibration };
 }
 
-/**
- * Custom Hook: Fetches the Model Governance rejection registry and threshold evidence.
- */
 export function useModelRegistry() {
   const [data, setData] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -300,9 +383,6 @@ export function useModelRegistry() {
 
 
 
-/**
- * Custom Hook: Fetches system configuration (e.g. cutoffs)
- */
 export function useSystemConfig() {
   const [config, setConfig] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);

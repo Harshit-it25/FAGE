@@ -2,7 +2,7 @@ import os
 import sys
 import pytest
 
-# Ensure UTF-8 output for Windows console
+
 sys.stdout.reconfigure(encoding='utf-8')
 
 if "NVIDIA_API_KEY" not in os.environ:

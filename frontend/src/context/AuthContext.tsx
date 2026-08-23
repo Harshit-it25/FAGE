@@ -1,14 +1,10 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState, useEffect } from 'react';
 import {
   AuthUser,
-  bootstrapAuthHeaders,
   clearSession,
-  getStoredToken,
   getStoredUser,
   loginRequest,
 } from '../services/auth';
-
-bootstrapAuthHeaders();
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -20,9 +16,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() =>
-    getStoredToken() ? getStoredUser() : null
-  );
+  const [user, setUser] = useState<AuthUser | null>(() => getStoredUser());
 
   const login = useCallback(async (username: string, password: string) => {
     const res = await loginRequest(username, password);
@@ -33,6 +27,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearSession();
     setUser(null);
   }, []);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      logout();
+    };
+    window.addEventListener('auth_unauthorized', handleUnauthorized);
+    return () => {
+      window.removeEventListener('auth_unauthorized', handleUnauthorized);
+    };
+  }, [logout]);
 
   const value = useMemo(
     () => ({

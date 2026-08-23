@@ -28,9 +28,7 @@ export const ThresholdTuner: React.FC = () => {
     setLoading(true);
     setMessage('');
     try {
-      // Tune global threshold
       const resThreshold = await fageApi.tuneThreshold(threshold);
-      // Tune PU metrics
       const resPU = await fageApi.tuneSPYThreshold({
         c_factor: cFactor,
         spy_threshold: spyThreshold,

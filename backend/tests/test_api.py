@@ -4,9 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.main import api_app as app
+from app.main import app as app
 
-client = TestClient(app)
+client = TestClient(app, base_url="http://testserver/api")
 def get_jwt(client):
     res = client.post("/token", data={"username": "admin", "password": "admin123"})
     return res.json()["access_token"]
@@ -150,6 +150,16 @@ def test_alerts_queue():
     assert data["status"] == "success"
     assert "alerts" in data
     assert "alerts_count" in data
+    assert "total_count" in data
+    assert "offset" in data
+    assert "limit" in data
+
+    paginated = client.get("/alerts?limit=5&offset=0", headers=headers)
+    assert paginated.status_code == 200
+    page_data = paginated.json()
+    assert page_data["limit"] == 5
+    assert page_data["offset"] == 0
+    assert len(page_data["alerts"]) <= 5
 
 
 def test_analyst_feedback_recalibration():
@@ -183,3 +193,4 @@ def test_spy_threshold_tuning():
     assert data["status"] == "success"
     assert data["new_spy_threshold"] == 0.015
     assert data["new_c_factor"] == 0.75
+

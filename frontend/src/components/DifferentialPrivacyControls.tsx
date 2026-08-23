@@ -22,23 +22,23 @@ import {
 } from '../services/api';
 
 interface DifferentialPrivacyControlsProps {
-  theme: 'dark' | 'light';
+  theme: 'analytics' | 'sovereign';
 }
 
 export default function DifferentialPrivacyControls({ theme }: DifferentialPrivacyControlsProps) {
-  const isDark = theme === 'dark';
+  const isDark = theme === 'analytics';
 
   const [budgetStatus, setBudgetStatus] = useState<DPBudgetStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Parameter configuration
+  
   const [epsilon, setEpsilon] = useState<number>(0.5);
   const [mechanism, setMechanism] = useState<'laplace' | 'gaussian'>('laplace');
   const [resetEpsilonVal, setResetEpsilonVal] = useState<number>(10.0);
 
-  // Results
+  
   const [dpMetrics, setDpMetrics] = useState<DPMetricsResponse | null>(null);
   const [dpGraphSummary, setDpGraphSummary] = useState<DPGraphSummaryResponse | null>(null);
 
@@ -113,7 +113,7 @@ export default function DifferentialPrivacyControls({ theme }: DifferentialPriva
 
   return (
     <div className="space-y-6 text-on-surface">
-      {/* Top Banner */}
+      {}
       <div className="p-6 rounded-2xl border border-outline-variant/60 bg-surface-container-low shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-4">
@@ -150,9 +150,9 @@ export default function DifferentialPrivacyControls({ theme }: DifferentialPriva
         )}
       </div>
 
-      {/* Privacy Budget Ledger Grid */}
+      {}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Budget Gauge & Status */}
+        {}
         <div className="p-6 rounded-2xl border border-outline-variant/60 bg-surface-container-low shadow-sm md:col-span-1 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -216,7 +216,7 @@ export default function DifferentialPrivacyControls({ theme }: DifferentialPriva
           </div>
         </div>
 
-        {/* Query Ledger Audit History */}
+        {}
         <div className="p-6 rounded-2xl border border-outline-variant/60 bg-surface-container-low shadow-sm md:col-span-2 flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
@@ -273,7 +273,7 @@ export default function DifferentialPrivacyControls({ theme }: DifferentialPriva
         </div>
       </div>
 
-      {/* Noise Injection Configuration Panel */}
+      {}
       <div className="p-6 rounded-2xl border border-outline-variant/60 bg-surface-container-low shadow-sm">
         <div className="flex items-center gap-2 mb-6">
           <Sliders className="w-5 h-5 text-primary" />
@@ -281,7 +281,7 @@ export default function DifferentialPrivacyControls({ theme }: DifferentialPriva
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
-          {/* Epsilon Slider */}
+          {}
           <div>
             <div className="flex justify-between items-center mb-2">
               <label className="text-xs font-semibold text-on-surface-variant">
@@ -304,7 +304,7 @@ export default function DifferentialPrivacyControls({ theme }: DifferentialPriva
             </div>
           </div>
 
-          {/* Mechanism Selector */}
+          {}
           <div>
             <label className="block text-xs font-semibold text-on-surface-variant mb-2">
               Noise Mechanism
@@ -337,7 +337,7 @@ export default function DifferentialPrivacyControls({ theme }: DifferentialPriva
             </div>
           </div>
 
-          {/* Export Actions */}
+          {}
           <div className="flex gap-3">
             <button
               onClick={handleExportMetrics}
@@ -359,10 +359,10 @@ export default function DifferentialPrivacyControls({ theme }: DifferentialPriva
         </div>
       </div>
 
-      {/* Re-Identification Risk & Export Results Grid */}
+      {}
       {(dpGraphSummary || dpMetrics) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Graph Topology Summary & ReID Assessment */}
+          {}
           {dpGraphSummary && (
             <div className="p-6 rounded-2xl border border-outline-variant/60 bg-surface-container-low shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b pb-3 border-outline-variant/60">
@@ -375,7 +375,7 @@ export default function DifferentialPrivacyControls({ theme }: DifferentialPriva
                 </span>
               </div>
 
-              {/* Re-Identification Risk Badge */}
+              {}
               <div className="p-4 rounded-xl bg-surface-container/60 border border-outline-variant/60 flex items-center justify-between">
                 <div>
                   <span className="text-xs font-bold text-on-surface-variant uppercase tracking-wider">Re-Identification Risk Score</span>
@@ -401,7 +401,7 @@ export default function DifferentialPrivacyControls({ theme }: DifferentialPriva
                 <span className="font-bold text-primary mr-1">Recommendation:</span> {dpGraphSummary.reidentification_risk_assessment.recommendation}
               </div>
 
-              {/* Noisy Counts Grid */}
+              {}
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <div className="p-3.5 rounded-xl bg-surface-container/60 border border-outline-variant/40">
                   <span className="text-xs text-on-surface-variant font-medium">Noisy Node Count</span>
@@ -423,7 +423,7 @@ export default function DifferentialPrivacyControls({ theme }: DifferentialPriva
             </div>
           )}
 
-          {/* Noisy Telemetry & Metrics Table */}
+          {}
           {dpMetrics && (
             <div className="p-6 rounded-2xl border border-outline-variant/60 bg-surface-container-low shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b pb-3 border-outline-variant/60">

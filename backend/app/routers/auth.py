@@ -19,7 +19,7 @@ import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 from pydantic import BaseModel, Field
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, status, Depends, UploadFile, File, Request, Header
+from fastapi import APIRouter, FastAPI, HTTPException, Query, status, Depends, UploadFile, File, Request, Header, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.concurrency import run_in_threadpool
@@ -46,7 +46,7 @@ from app.ml.dp_engine import dp_engine, PrivacyBudgetExceededError
 from app.services.llm import call_nvidia_llm
 
 from app.dependencies import (
-    risk_engine, GLOBAL_DECISION_THRESHOLD, _threshold_lock,
+    risk_engine,
     _COMPLIANCE_RULES,
     _active_alert_score_cutoffs, _load_active_model_metrics,
     _compute_rule_exception_rate, _build_real_sample_df,
@@ -67,14 +67,14 @@ _INR_USD_RATE = float(os.environ.get("FAGE_INR_USD_RATE", "83.5"))
 
 router = APIRouter(tags=["Authentication"])
 
+from fastapi import BackgroundTasks
+from app.services.security_service import security_service
+
 @router.post("/token", response_model=TokenResponse, tags=["Authentication"])
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login_for_access_token(response: Response, background_tasks: BackgroundTasks, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     try:
         _check_login_throttle(form_data.username)
     except HTTPException:
-        # Lockout triggered -- this is the most security-relevant login signal (repeated
-        # failures in a short window) and previously existed only as a transient in-memory
-        # counter, invisible to the permanent audit trail and lost on every restart.
         write_audit(
             db, actor=form_data.username, role=None, action="login_locked_out",
             entity_type="auth", entity_id=form_data.username,
@@ -86,6 +86,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
     user = authenticate_user(form_data.username, form_data.password)
     if not user:
         _record_login_failure(form_data.username)
+        background_tasks.add_task(security_service.analyze_login_attempt, form_data.username, False)
         write_audit(
             db, actor=form_data.username, role=None, action="login_failed",
             entity_type="auth", entity_id=form_data.username,
@@ -98,6 +99,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
             headers={"WWW-Authenticate": "Bearer"},
         )
     _login_failures.pop(form_data.username, None)
+    background_tasks.add_task(security_service.analyze_login_attempt, form_data.username, True)
     access_token = create_access_token(
         data={"sub": user["username"], "role": user["role"]},
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -113,6 +115,16 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
         auth_method="jwt",
     )
     db.commit()
+
+    response.set_cookie(
+        key="fage_jwt",
+        value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
     return TokenResponse(
         access_token=access_token,
         expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
@@ -122,6 +134,17 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
             "display_name": user["display_name"],
         },
     )
+
+@router.post("/logout", tags=["Authentication"])
+def logout(response: Response, user: AuthUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    response.delete_cookie(key="fage_jwt")
+    write_audit(
+        db, actor=user.username, role=user.role, action="logout",
+        entity_type="auth", entity_id=user.username,
+        detail="User logged out.", auth_method=user.auth_method,
+    )
+    db.commit()
+    return {"status": "success", "detail": "Logged out successfully"}
 
 @router.get("/me", tags=["Authentication"], dependencies=[Depends(verify_api_key)])
 def read_current_user(user: AuthUser = Depends(get_current_user)):
@@ -134,6 +157,7 @@ def read_current_user(user: AuthUser = Depends(get_current_user)):
 
 @router.get("/audit-logs", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key), Depends(require_role("admin", "auditor", "service"))])
 def list_audit_logs(
+    background_tasks: BackgroundTasks,
     limit: int = Query(100, ge=1, le=500),
     entity_type: Optional[str] = Query(None),
     entity_id: Optional[str] = Query(None),
@@ -146,5 +170,7 @@ def list_audit_logs(
     if entity_id:
         q = q.filter(AuditLogModel.entity_id == entity_id)
     rows = q.limit(limit).all()
+    from app.services.security_service import security_service
+    background_tasks.add_task(security_service.analyze_data_access, user.username, len(rows))
     return {"status": "success", "count": len(rows), "logs": [r.to_dict() for r in rows]}
 

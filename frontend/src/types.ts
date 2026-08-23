@@ -7,10 +7,9 @@ export type ViewMode =
   | 'dashboard'
   | 'investigation'
   | 'explorer'
-  | 'insights'
-  | 'performance'
   | 'alerts'
-  | 'admin';
+  | 'admin'
+  | 'dp-ledger';
 
 export type SystemTheme = 'analytics' | 'sovereign';
 
@@ -84,7 +83,7 @@ export interface SHAPDriver {
   featureId: string;
   name: string;
   type: 'Behavioral' | 'Network' | 'Profile' | 'Technical';
-  shapValue: number; // impact value (SHAP)
+  shapValue: number; 
   importanceScore: number;
   value: string;
 }

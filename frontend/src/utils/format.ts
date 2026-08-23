@@ -1,7 +1,3 @@
-/**
- * FAGE Shared Currency Formatting Utilities
- * Standardized Indian Rupee (INR) formatting according to en-IN locale and RBI/Bank of India conventions.
- */
 
 export const formatINR = (val: number | null | undefined): string => {
   if (val === null || val === undefined || isNaN(val)) {
@@ -21,8 +17,8 @@ export const formatINRAbbreviated = (val: number | null | undefined): string => 
   }
   const absVal = Math.abs(val);
   const sign = val < 0 ? '-' : '';
-  
-  if (absVal >= 10000000) {
+
+    if (absVal >= 10000000) {
     return `${sign}₹${(absVal / 10000000).toFixed(2)}Cr`;
   } else if (absVal >= 100000) {
     return `${sign}₹${(absVal / 100000).toFixed(2)}L`;

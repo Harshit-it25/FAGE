@@ -38,7 +38,7 @@ export default function LoginView() {
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-background text-on-surface p-6" data-theme={theme}>
-      {/* Theme Toggle Floating Button */}
+      {}
       <div className="absolute top-6 right-6">
         <button
           onClick={toggleTheme}

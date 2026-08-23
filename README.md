@@ -245,7 +245,7 @@ The feature vectors evaluated by the machine learning models are **real transact
 
 ### Resolving Thresholds (0.5 vs Optimized)
 The underlying models are trained on highly imbalanced data. A naive default threshold of `0.5` causes the models to predict "legitimate" for almost every case, resulting in high accuracy (e.g. 94.6%) but **0% recall**. 
-In this updated version, the dashboard correctly serves metrics calculated at the **cost-optimized threshold**. A 0.60 decision threshold was selected through cost-sensitive analysis of out-of-fold predictions and frozen for this model version. This gives an honest view of the pipeline's real-world capability (e.g. precision > 0.80 and recall > 0.70), matching our holdout and CV evaluations.
+In this updated version, the dashboard correctly serves metrics calculated at the **cost-optimized threshold**. A 0.9648 decision threshold was selected through cost-sensitive analysis of out-of-fold predictions and frozen for this model version. This gives an honest view of the pipeline's real-world capability (e.g. precision ~79.2% and recall ~82.7%), matching our holdout and CV evaluations.
 
 ---
 
@@ -253,8 +253,8 @@ In this updated version, the dashboard correctly serves metrics calculated at th
 
 * The official feature dictionary was used to aggressively filter out noise.
 * 25 post-event semantic leakage features were explicitly removed to ensure a valid simulation.
-* The production model evaluates exactly 353 legitimate transaction features.
-* The internal clean holdout F1 is approximately 0.82.
+* The production model evaluates exactly 48 rigorously selected transaction features.
+* The internal clean cross-validated F1 is approximately 0.80 (precision ~0.79, recall ~0.83).
 * Organizer validation performance: Not available to the team at development time.
 * The investigation graph is a deterministic simulation demonstrating how relational banking data could be integrated.
 

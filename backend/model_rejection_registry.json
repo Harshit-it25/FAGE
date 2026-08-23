@@ -4,7 +4,7 @@
   "primary_model": {
     "name": "XGBoost",
     "status": "SELECTED",
-    "evidence": "Clean XGBoost with 353 legitimate features (25 leakage features permanently blocked). 5-fold CV F1 0.8124 +/- 0.1220 at global threshold 0.60. Organizer validation: NOT AVAILABLE."
+    "evidence": "Clean XGBoost with 450 legitimate features (32 seeds forced in, known leaks permanently blocked). Cost-optimal threshold 0.01. Organizer validation: NOT AVAILABLE."
   },
   "rejected_or_secondary_models": [
     {

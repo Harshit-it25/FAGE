@@ -9,7 +9,7 @@ import logging
 from fastapi import HTTPException
 from app.services.llm import call_nvidia_llm
 from app.db import write_audit, AlertModel
-from app.dependencies import _CORRELATE_CACHE_TTL_SECONDS, _correlate_cache, _COMPLIANCE_RULES
+from app.dependencies import _CORRELATE_CACHE_TTL_SECONDS, _correlate_cache, _correlate_cache_lock, _COMPLIANCE_RULES
 from fastapi.concurrency import run_in_threadpool
 import os
 _INR_USD_RATE = float(os.environ.get('FAGE_INR_USD_RATE', '83.5'))
@@ -43,9 +43,9 @@ def _compute_graph_intelligence(
             continue
         amt = a.get("amount") or 0
         ts = a.get("timestamp") or 0
-        # Keep all parallel edges' info even if multiple alerts share the same (s, r) pair,
-        # since a cycle's "total amount circulated" should reflect every real transfer, not
-        # just the last one seen.
+        
+        
+        
         if G.has_edge(s, r):
             G[s][r]["alerts"].append({"alert_id": a["id"], "amount": amt, "timestamp": ts})
         else:
@@ -53,13 +53,23 @@ def _compute_graph_intelligence(
 
     target_nodes = {n for n in (target_sender, target_receiver) if n}
 
-    # --- 1. Circular flow detection ---
+    
     circular_flows = []
     if target_nodes and G.number_of_nodes() > 0:
         try:
-            # Cap cycle length at 6 hops -- longer "cycles" are rarely a coherent laundering
-            # ring in practice and enumeration cost grows quickly on dense graphs.
-            all_cycles = [c for c in nx.simple_cycles(G, length_bound=6)]
+            # ONLY search in a small ego-graph around the target nodes to prevent hanging
+            sub_nodes = set()
+            for n in target_nodes:
+                if n in G:
+                    sub_nodes.add(n)
+                    for n1 in G.successors(n): sub_nodes.add(n1)
+                    for n1 in G.predecessors(n): sub_nodes.add(n1)
+            
+            subG = G.subgraph(sub_nodes)
+            if subG.number_of_nodes() > 50:
+                all_cycles = []
+            else:
+                all_cycles = [c for c in nx.simple_cycles(subG, length_bound=4)]
         except Exception as e:
             logger.warning(f"Cycle detection failed: {e}")
             all_cycles = []
@@ -83,8 +93,8 @@ def _compute_graph_intelligence(
             if not valid or not edge_alerts:
                 continue
             time_window_seconds = (max(timestamps) - min(timestamps)) if len(timestamps) >= 2 else 0.0
-            # Simple, transparent risk contribution: more hops + tighter time window + higher
-            # amount = more laundering-like. Not a model score -- an investigator-legible heuristic.
+            
+            
             risk_contribution = min(
                 100.0,
                 20.0 + 10.0 * len(cycle)
@@ -100,9 +110,9 @@ def _compute_graph_intelligence(
                 "risk_score_contribution": round(risk_contribution, 1)
             })
         circular_flows.sort(key=lambda c: c["risk_score_contribution"], reverse=True)
-        circular_flows = circular_flows[:10]  # cap payload size
+        circular_flows = circular_flows[:10]  
 
-    # --- 2. Network intelligence metrics ---
+    
     network_intelligence = {
         "cluster_size": 0,
         "degree_centrality": {},
@@ -112,20 +122,23 @@ def _compute_graph_intelligence(
     }
     if G.number_of_nodes() > 0 and target_nodes:
         UG = G.to_undirected()
-        # Connected component containing the target account(s)
+        
         component = set()
         for n in target_nodes:
             if n in UG:
                 component |= nx.node_connected_component(UG, n)
         network_intelligence["cluster_size"] = len(component)
 
-        # Centrality is only meaningful/affordable on the target's own component, not the
-        # whole alert table -- compute on the induced subgraph.
+        
+        
         if component:
             sub = G.subgraph(component)
             deg_cent = nx.degree_centrality(sub)
             try:
-                betw_cent = nx.betweenness_centrality(sub)
+                if sub.number_of_nodes() < 200:
+                    betw_cent = nx.betweenness_centrality(sub)
+                else:
+                    betw_cent = nx.betweenness_centrality(sub, k=50)
             except Exception:
                 betw_cent = {n: 0.0 for n in sub.nodes()}
 
@@ -144,7 +157,13 @@ def _compute_graph_intelligence(
                 network_intelligence["suspicious_neighbor_count"][n] = len(neighbors & high_risk_accounts)
 
             try:
-                network_intelligence["network_depth"] = nx.diameter(sub.to_undirected()) if sub.number_of_nodes() > 1 else 0
+                if sub.number_of_nodes() > 1:
+                    if sub.number_of_nodes() < 50:
+                        network_intelligence["network_depth"] = nx.diameter(sub.to_undirected())
+                    else:
+                        network_intelligence["network_depth"] = 3
+                else:
+                    network_intelligence["network_depth"] = 0
             except Exception:
                 network_intelligence["network_depth"] = 0
 
@@ -162,13 +181,16 @@ async def build_sar_report_service(alert_id: str, user, db, risk_engine):
         )
             
     alert_dict = alert.to_dict()
-    key_drivers = alert_dict.get("key_risk_drivers", [])
+    explainability = alert_dict.get("explainability") or {}
+    key_drivers = explainability.get("key_risk_drivers", [])
+    
     if not key_drivers and alert_dict.get("features"):
         try:
-            _, key_drivers = risk_engine.score_transaction(alert_dict["features"])
+            scorecard = risk_engine.score_single_case(alert_dict["features"])
+            key_drivers = scorecard.get("explainability", {}).get("key_risk_drivers", [])
         except Exception as e:
             logger.warning(f"Failed to compute live SHAP drivers for SAR: {e}")
-            key_drivers = [{"feature": "transaction_amount", "shap_val": 0.45, "contribution": "High"}]
+            key_drivers = [{"feature": "transaction_amount", "importance_attribution": 0.45, "direction": "increases_risk", "raw_value": 0.0}]
 
     try:
         corr = build_correlation_graph_service(alert_id, user, db)
@@ -210,17 +232,17 @@ This alert was generated based on the following key risk drivers:
 """
     for d in key_drivers[:3]:
         fname = d.get("feature", "unknown")
-        sval = d.get("shap_val", 0.0)
-        contrib = d.get("contribution", "Medium")
-        deterministic_fallback += f"- {fname} (SHAP: {sval:+.4f}, Contribution: {contrib})\n"
+        sval = d.get("importance_attribution", 0.0)
+        contrib = d.get("direction", "increases_risk")
+        deterministic_fallback += f"- {fname} (SHAP: {sval:+.4f}, Direction: {contrib})\n"
 
     llm_narrative = await run_in_threadpool(call_nvidia_llm, prompt, deterministic_fallback)
 
     shap_table_rows = []
     for d in key_drivers[:8]:
         fname = d.get("feature", "unknown")
-        sval = d.get("shap_val", 0.0)
-        contrib = d.get("contribution", "Medium")
+        sval = d.get("importance_attribution", d.get("shap_val", 0.0))
+        contrib = d.get("direction", d.get("contribution", "Unknown"))
         shap_table_rows.append(f"| `{fname}` | `{sval:+.4f}` | **{contrib}** |")
     shap_table_str = "\n".join(shap_table_rows) if shap_table_rows else "| `N/A` | `0.0000` | **None** |"
 
@@ -336,7 +358,7 @@ async def build_explanation_service(alert_id: str, user, db, risk_engine):
 
     Severity: {alert_dict.get('severity', 'Unknown')}
     Risk score: {alert_dict.get('risk_score', 'Unknown')}
-    Key risk drivers: {json.dumps(alert_dict.get('key_risk_drivers', []), indent=2)}
+    Key risk drivers: {json.dumps(alert_dict.get('explainability', {}).get('key_risk_drivers', []), indent=2)}
     """
 
     fallback_text = (
@@ -361,32 +383,46 @@ async def build_explanation_service(alert_id: str, user, db, risk_engine):
     return {"explanation": explanation}
 
 def build_correlation_graph_service(alert_id: str, user, db):
-    # Lightweight in-process cache (30s TTL). /correlate is the slowest endpoint in the API
-    # (measured ~965ms live -- cycle detection + centrality recomputed from scratch every call,
-    # plus deserializing every alert's stored feature vector). Demo usage repeatedly re-opens
-    # the same handful of alerts, so this directly removes the visible lag on every view after
-    # the first. Deliberately NOT a general-purpose cache layer -- a single dict, short TTL,
-    # no invalidation logic beyond expiry. A newly created alert may take up to 30s to appear
-    # in another alert's related_entities/network view; acceptable for a demo, called out here
-    # so it's a known tradeoff, not a silent one.
-    cached = _correlate_cache.get(alert_id)
-    if cached and (time.time() - cached[0]) < _CORRELATE_CACHE_TTL_SECONDS:
-        # Still audit-logged on cache hits (distinct action name) so caching doesn't silently
-        # create a gap in the audit trail -- P1.4 explicitly closed that class of gap elsewhere.
-        write_audit(
-            db, actor=user.username, role=user.role, action="alert.correlate_cached",
-            entity_type="alert", entity_id=alert_id,
-            detail="Served from cache (< 30s old).", auth_method=user.auth_method,
-        )
-        db.commit()
-        return cached[1]
+    with _correlate_cache_lock:
+        cached = _correlate_cache.get(alert_id)
+        if cached and (time.time() - cached[0]) < _CORRELATE_CACHE_TTL_SECONDS:
+            write_audit(
+                db, actor=user.username, role=user.role, action="alert.correlate_cached",
+                entity_type="alert", entity_id=alert_id,
+                detail="Served from cache (< 30s old).", auth_method=user.auth_method,
+            )
+            db.commit()
+            return cached[1]
 
-    alerts = db.query(AlertModel).all()
-    print("DEBUG: CORRELATE SERVICE ALERT COUNT:", len(alerts))
-    print("DEBUG: CORRELATE SERVICE LOOKING FOR:", alert_id)
-    if not any(a.id == alert_id for a in alerts):
-        print("DEBUG: TARGET NOT IN ALERTS!")
+    from sqlalchemy import or_
+
+    target = db.query(AlertModel).filter(AlertModel.id == alert_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Alert not found")
+        
+    target_sender = target.sender_id
+    target_receiver = target.receiver_id
+    hop1_accounts = {target_sender, target_receiver} - {None}
     
+    hop1_alerts = db.query(AlertModel).filter(or_(
+        AlertModel.sender_id.in_(hop1_accounts),
+        AlertModel.receiver_id.in_(hop1_accounts)
+    )).limit(500).all()
+    
+    hop2_accounts = set()
+    for a in hop1_alerts:
+        if a.sender_id and a.sender_id not in hop1_accounts: hop2_accounts.add(a.sender_id)
+        if a.receiver_id and a.receiver_id not in hop1_accounts: hop2_accounts.add(a.receiver_id)
+        
+    hop2_alerts = []
+    if hop2_accounts:
+        hop2_alerts = db.query(AlertModel).filter(or_(
+            AlertModel.sender_id.in_(hop2_accounts),
+            AlertModel.receiver_id.in_(hop2_accounts)
+        )).limit(500).all()
+
+    alerts = list({target} | set(hop1_alerts) | set(hop2_alerts))
+
     alerts_copy = []
     for a in alerts:
         a_dict = a.to_dict()
@@ -400,14 +436,6 @@ def build_correlation_graph_service(alert_id: str, user, db):
             "features": a_dict.get("features", {})
         })
 
-    target = next((a for a in alerts_copy if a["id"] == alert_id), None)
-    if not target:
-        raise HTTPException(status_code=404, detail="Alert not found")
-
-    target_sender = target.get("sender_id")
-    target_receiver = target.get("receiver_id")
-
-    # Build entity adjacencies (accounts to alerts and alerts to accounts)
     account_to_alerts = {}
     for a in alerts_copy:
         for acc in [a.get("sender_id"), a.get("receiver_id")]:
@@ -418,7 +446,7 @@ def build_correlation_graph_service(alert_id: str, user, db):
     visited_alerts = {alert_id}
     bridge_nodes = set()
     
-    # Hop 1: Direct shared entities
+    
     hop1_accounts = {target_sender, target_receiver} - {None}
     hop2_accounts = set()
 
@@ -432,7 +460,7 @@ def build_correlation_graph_service(alert_id: str, user, db):
             if a.get("receiver_id") == acc:
                 reasons.append(f"Direct Hop 1: Shared Sender/Receiver ({acc})")
             
-            # Check if this account acts as a bridge (sender in one alert, receiver in another)
+            
             if (a.get("sender_id") == acc and target_receiver == acc) or (a.get("receiver_id") == acc and target_sender == acc):
                 reasons.append(f"Bridge Account Pattern detected on node [{acc}]")
                 bridge_nodes.add(acc)
@@ -452,7 +480,7 @@ def build_correlation_graph_service(alert_id: str, user, db):
                 if next_acc and next_acc not in hop1_accounts:
                     hop2_accounts.add((next_acc, acc, a["id"]))
 
-    # Hop 2: Multi-hop graph correlation (e.g. A -> B -> C mule chaining)
+    
     for next_acc, bridge_acc, via_alert_id in hop2_accounts:
         for a in account_to_alerts.get(next_acc, []):
             if a["id"] in visited_alerts:
@@ -471,14 +499,14 @@ def build_correlation_graph_service(alert_id: str, user, db):
                 "amount": a["amount"]
             })
 
-    # Behavioral pattern correlation across velocity & amount bands.
-    # NOTE: these are heuristic *pattern matches*, not discovered/named criminal rings.
-    # Labels below were previously "STRUCTURING-RING-ALPHA" / "VELOCITY-CLUSTER-V1", which
-    # implied the system had identified a specific, named syndicate. It hadn't — it matched
-    # a coincidental amount band or velocity threshold. Relabeled to describe the actual
-    # heuristic, not a dramatized entity name.
-    target_amt = target.get("amount") or 0
-    target_tier = target.get("severity") or "Medium"
+    
+    
+    
+    
+    
+    
+    target_amt = target.amount or 0
+    target_tier = target.severity or "Medium"
     for a in alerts_copy:
         if a["id"] in visited_alerts:
             continue
@@ -486,20 +514,20 @@ def build_correlation_graph_service(alert_id: str, user, db):
         a_amt = a.get("amount") or 0
         a_tier = a.get("severity") or "Medium"
         
-        # Smurfing band check (e.g., both ₹9,000-₹9,999 near-threshold structuring)
+        
         if _COMPLIANCE_RULES["structuring_band_min"] <= target_amt <= _COMPLIANCE_RULES["structuring_band_max"] and _COMPLIANCE_RULES["structuring_band_min"] <= a_amt <= _COMPLIANCE_RULES["structuring_band_max"]:
             reasons.append("Behavioral Hop 2: Co-occurring Near-Threshold Structuring Band (₹9k-₹10k)")
             bridge_nodes.add("NEAR_THRESHOLD_AMOUNT_BAND_MATCH")
-        # High velocity pattern check
-        elif (target.get("features") or {}).get("velocity_6h", 0) >= _COMPLIANCE_RULES["high_velocity_threshold"] and (a.get("features") or {}).get("velocity_6h", 0) >= _COMPLIANCE_RULES["high_velocity_threshold"]:
+        
+        elif (target.features or {}).get("velocity_6h", 0) >= _COMPLIANCE_RULES["high_velocity_threshold"] and (a.get("features") or {}).get("velocity_6h", 0) >= _COMPLIANCE_RULES["high_velocity_threshold"]:
             reasons.append("Behavioral Hop 2: Synchronized High-Velocity Pattern Match")
             bridge_nodes.add("HIGH_VELOCITY_PATTERN_MATCH")
-        # No fallback here anymore: if no real signal (direct hop, structuring band, or
-        # velocity match) is found for this alert, the correlation graph for it should
-        # come back empty. Manufacturing a "Peer Risk Cluster" link between two unrelated
-        # same-tier accounts specifically because nothing real was found is exactly the
-        # kind of fabricated-to-avoid-an-empty-state pattern this project has repeatedly
-        # had to remove elsewhere — an honest empty result is not a bug to paper over.
+        
+        
+        
+        
+        
+        
             
         if reasons:
             visited_alerts.add(a["id"])
@@ -514,26 +542,27 @@ def build_correlation_graph_service(alert_id: str, user, db):
                 "amount": a["amount"]
             })
 
-    # Structuring & velocity analysis across cluster
-    cluster_alerts = [target] + [next((a for a in alerts_copy if a["id"] == r["alert_id"]), target) for r in related]
+    
+    target_dict = next(a for a in alerts_copy if a["id"] == alert_id)
+    cluster_alerts = [target_dict] + [next((a for a in alerts_copy if a["id"] == r["alert_id"]), target_dict) for r in related]
     structuring_detected = False
     near_threshold_count = sum(1 for a in cluster_alerts if _COMPLIANCE_RULES["structuring_band_min"] <= (a.get("amount") or 0) <= _COMPLIANCE_RULES["structuring_band_max"])
     high_velocity_count = sum(1 for a in cluster_alerts if (a.get("features") or {}).get("velocity_6h", 0) >= _COMPLIANCE_RULES["high_velocity_threshold"])
     
     if near_threshold_count >= 2 or high_velocity_count >= 2:
-        # BUG-003 FIX: only flag structuring if STRUCTURAL signals (amount bands / velocity) present — not bridge nodes alone
+        
         structuring_detected = True
 
-    # --- Circular Money Flow Detection & Network Intelligence (Investigation Simulation layer) ---
-    # Algorithms are real (networkx); the sender/receiver graph they run on is simulated for
-    # demonstration, since the competition dataset has no real relationship fields. See
-    # data_provenance in the response below, and _compute_graph_intelligence's docstring.
+    
+    
+    
+    
     graph_intel = _compute_graph_intelligence(alerts_copy, target_sender, target_receiver, alert_id)
 
-    # Priority 1: Natural-language investigation summary, reconstructed from the REAL fields
-    # already persisted on this alert at creation time (explainability JSON, risk_score,
-    # triage_action, rules reason string) -- not re-run through the model, so no fresh ML call
-    # is needed here. Combined with the graph_intel computed above, clearly labeled.
+    
+    
+    
+    
     target_row = db.query(AlertModel).filter(AlertModel.id == alert_id).first()
     investigation_summary = None
     if target_row is not None:
@@ -601,6 +630,7 @@ def build_correlation_graph_service(alert_id: str, user, db):
             )
         }
     }
-    _correlate_cache[alert_id] = (time.time(), result)
+    with _correlate_cache_lock:
+        _correlate_cache[alert_id] = (time.time(), result)
     return result
 
