@@ -1,8 +1,0 @@
-{
-  "name": "fage-root",
-  "version": "1.0.0",
-  "scripts": {
-    "dev": "cd \"frontend\" && npm run dev",
-    "install": "cd \"frontend\" && npm install"
-  }
-}
