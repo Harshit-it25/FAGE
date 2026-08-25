@@ -6,8 +6,7 @@ from typing import Dict, List, Tuple, Any, Optional
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
-from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import precision_recall_fscore_support, roc_auc_score
+from sklearn.metrics import precision_recall_fscore_support
 from scipy.stats import ks_2samp
 
 logger = logging.getLogger("FAGE.ML.PUEngine")

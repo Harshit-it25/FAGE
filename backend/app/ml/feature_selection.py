@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 
 from sklearn.feature_selection import mutual_info_classif, RFECV
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.base import BaseEstimator
 

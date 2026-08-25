@@ -327,11 +327,6 @@ class FAGERiskEngine:
     def _deploy_fallback_proxies(self):
         logger.error("Core model components failed to load. Strict mode enforced: raising RuntimeError instead of using mock proxies.")
         raise RuntimeError("FAGE Risk Engine failed to initialize because core model components (preprocessor, selector, or classifier) are missing. Run the training script first.")
-        self.triage_policy = FAGETriagePolicy()
-        self.cost_optimizer = FAGECostOptimizer()
-        self.is_production_ready = False
-        self.v4_bundle = None
-        logger.info("Fallback modeling proxies loaded — NOT production ready, /predict will correctly refuse to serve.")
 
     def map_probability_to_scorecard(self, probability: float, decision_threshold: Optional[float] = None) -> Tuple[int, str, str]:
         """
