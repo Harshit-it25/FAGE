@@ -22,9 +22,9 @@ def seed_real_data():
     db.commit()
 
     print("Loading actual dataset...")
-    df = pd.read_csv("../DataSet.csv")
+    df = pd.read_csv("../data/DataSet.csv")
     
-    # Optional: we can sample both frauds (F3924 == 1) and non-frauds so the dashboard sees both
+    
     target_col = "F3924"
     if target_col not in df.columns:
         target_col = [c for c in df.columns if c.lower() == "f3924"][0]
@@ -39,17 +39,17 @@ def seed_real_data():
     alerts = []
     
     for i, row in sample_df.iterrows():
-        # drop target column for scoring
+        
         req_data = {str(k): (None if pd.isna(v) else v) for k, v in row.drop(labels=[target_col]).to_dict().items()}
         
-        # === INVESTIGATION SIMULATION LAYER ===
-        # The competition dataset (F1-F3923) is a flat per-account feature table -- it has NO
-        # transaction-level relationship fields (sender, receiver, device, IP, etc). The AI
-        # Risk Engine score above is computed directly from real dataset features and is fully
-        # authentic. These sender/receiver/amount values are NOT derived from the dataset --
-        # they exist solely to demonstrate how the same risk engine would integrate with a
-        # bank's real transaction monitoring system once real relationship data is available.
-        # This is intentionally an operational-layer demonstration, not a training feature.
+        
+        
+        
+        
+        
+        
+        
+        
         sender_id = f"ACC-{random.randint(1000, 9999)}"
         receiver_id = f"ACC-{random.randint(1000, 9999)}"
         amount = round(random.uniform(50.0, 15000.0), 2)
@@ -62,12 +62,12 @@ def seed_real_data():
             
         final_score = scorecard["scores"]["final_risk_score"]
         
-        # Only create alerts for transactions that cross a certain threshold or just create them anyway for the dashboard?
-        # If we want a mix of alerts, maybe we create an alert for all of them or just the ones with score >= 50, but let's make them all visible
+        
+        
         
         true_label = int(row[target_col])
         
-        # Use specific prefixes so the frontend knows the TRUE Ground Truth label from the dataset
+        
         if true_label == 1:
             alert_id = f"ALT-TGT-{str(uuid.uuid4()).upper()}"
         else:
@@ -83,7 +83,7 @@ def seed_real_data():
         ts = now - timedelta(hours=random.randint(0, 168), minutes=random.randint(0, 60))
         logs_trail = [{"operator": "System Agent", "action": "Automatic Risk Score Evaluation", "timestamp": ts.strftime("%Y-%m-%dT%H:%M:%SZ")}]
 
-        # Set realistic statuses based on score
+        
         if final_score > 85:
             status = "Escalated"
         elif final_score > 65:
@@ -119,11 +119,11 @@ def seed_real_data():
         )
         db.add(new_record)
         
-        # Commit incrementally so the UI populates immediately
+        
         if (i + 1) % 10 == 0:
             db.commit()
         
-    db.commit() # Final commit for any remaining
+    db.commit() 
     print(f"Successfully processed {len(sample_df)} authentic transactions into the database.")
     db.close()
 

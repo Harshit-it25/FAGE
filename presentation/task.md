@@ -1,0 +1,5 @@
+- [ ] Security: Remove `NVIDIA_API_KEY` from `backend/.env`
+- [ ] Split-brain: Delete `backend/per_model_cost_thresholds.json`, `backend/metrics.json`, `backend/val_metrics.json`, `backend/models/results_v4.json`
+- [ ] Split-brain: Update `backend/app/dependencies.py` to seed `GLOBAL_DECISION_THRESHOLD` from `model_metadata.json` instead of the deleted files.
+- [ ] Bug Fix: Update `backend/app/services/governance_service.py` lines 508-509 and 514-515 to handle ORM objects correctly.
+- [ ] Verification: Run tests to ensure `governance_service.py` mule hop bug is fixed.

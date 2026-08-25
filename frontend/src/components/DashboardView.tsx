@@ -19,12 +19,15 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { Alert, SystemTheme, DataSourceType } from '../types';
-import { useRiskScore, useDashboardSummary } from '../hooks/useFageApi';
+import { useRiskScore, useDashboardSummary, useAlerts } from '../hooks/useFageApi';
+import { mapApiAlert } from '../utils/mapAlert';
+import { DashboardTelemetryResponse } from '../services/api';
 import { formatINRAbbreviated } from '../utils/format';
 import { LiveFeed } from './LiveFeed';
+import { BiasAuditModal } from './BiasAuditModal';
 
 interface DashboardViewProps {
-  alerts: Alert[];
+  alerts?: Alert[];
   onSelectAlert: (id: string) => void;
   theme: SystemTheme;
   onRefreshAlerts?: () => void;
@@ -36,10 +39,11 @@ interface DashboardViewProps {
   apiTargetCount: number;
   apiDatasetCount: number;
   apiError: string | null;
+  telemetry?: DashboardTelemetryResponse['telemetry'] | null;
 }
 
 export default function DashboardView({ 
-  alerts, 
+  alerts: alertsProp, 
   onSelectAlert, 
   theme, 
   onRefreshAlerts,
@@ -50,13 +54,37 @@ export default function DashboardView({
   apiAlertsCount,
   apiTargetCount,
   apiDatasetCount,
-  apiError
+  apiError,
+  telemetry: telemetryProp,
 }: DashboardViewProps) {
   const isDark = theme === 'analytics';
   const [tierFilter, setTierFilter] = useState<'ALL' | 'CRITICAL' | 'HIGH' | 'LOW'>('ALL');
-  const { data: telemetry } = useDashboardSummary();
+  const [showBiasAudit, setShowBiasAudit] = useState(false);
+  const { data: fetchedTelemetry } = useDashboardSummary();
+  // Only use global backend telemetry if we are viewing ALL alerts.
+  // If a filter is applied (Mule, Dataset), force the UI to calculate stats dynamically from the filtered alerts array.
+  const activeTelemetry = dataSource === 'live-all' ? (telemetryProp ?? fetchedTelemetry) : null;
+  const telemetry = activeTelemetry;
 
-  // Real-time scoring state and evaluation handlers
+  const sourceFilter = dataSource === 'live-target' ? 'target' as const
+    : dataSource === 'live-dataset' ? 'dataset' as const
+    : undefined;
+
+  const severityFilter = tierFilter === 'CRITICAL' ? 'Critical'
+    : tierFilter === 'HIGH' ? 'High'
+    : tierFilter === 'LOW' ? 'Low'
+    : undefined;
+
+  const { alerts: recentApiAlerts } = useAlerts({
+    limit: 10,
+    severity_filter: severityFilter,
+    source_filter: sourceFilter,
+    enabled: isBackendOnline && !alertsProp,
+  });
+
+  const alerts = alertsProp ?? recentApiAlerts.map(mapApiAlert);
+
+  
   const { evaluate, result: scoreResult, loading: scoringLoading, error: scoringError, reset: resetScoring } = useRiskScore();
   const [simAmount, setSimAmount] = useState('');
   const [simSender, setSimSender] = useState('');
@@ -101,25 +129,37 @@ export default function DashboardView({
     }
   };
 
-  // Dynamic Risk Distribution calculations
+  
   const riskStats = React.useMemo(() => {
+    if (telemetry) {
+      const sev = telemetry.severity_profile;
+      const total = telemetry.total_incidents_recorded || 1;
+      const lowCount = sev?.Low ?? 0;
+      const medCount = sev?.Medium ?? 0;
+      const highCount = (sev?.High ?? 0) + (sev?.Critical ?? 0);
+      const lowPct = Math.round((lowCount / total) * 100);
+      const medPct = Math.round((medCount / total) * 100);
+      const highPct = 100 - lowPct - medPct;
+      return {
+        lowCount, medCount, highCount, lowPct, medPct, highPct,
+        avgScore: Math.round(telemetry.average_risk_rating),
+        total,
+      };
+    }
     const total = alerts.length || 1;
     const lowCount = alerts.filter(a => a.riskScore < 50).length;
     const medCount = alerts.filter(a => a.riskScore >= 50 && a.riskScore < 75).length;
     const highCount = alerts.filter(a => a.riskScore >= 75).length;
-    
     const lowPct = alerts.length === 0 ? 0 : Math.round((lowCount / total) * 100);
     const medPct = alerts.length === 0 ? 0 : Math.round((medCount / total) * 100);
     const highPct = alerts.length === 0 ? 0 : 100 - lowPct - medPct;
-    
     const avgScore = alerts.length > 0
       ? Math.round(alerts.reduce((acc, a) => acc + a.riskScore, 0) / alerts.length)
       : 0;
-
     return { lowCount, medCount, highCount, lowPct, medPct, highPct, avgScore, total };
-  }, [alerts]);
+  }, [alerts, telemetry]);
 
-  // Dynamic Alert Category/Distribution calculations
+  
   const alertStats = React.useMemo(() => {
     const total = alerts.length || 1;
     let muleCount = 0;
@@ -169,26 +209,38 @@ export default function DashboardView({
   };
 
   const threatLevel = React.useMemo(() => {
+    if (telemetry) {
+      const critical = telemetry.critical_alert_count ?? 0;
+      const open = telemetry.incident_status_matrix?.Open ?? 0;
+      if (critical >= 3 || open >= 5) return { label: 'Elevated', pct: 75 };
+      if (critical >= 1 || open >= 2) return { label: 'Heightened', pct: 55 };
+      if (telemetry.total_incidents_recorded === 0) return { label: 'Unknown', pct: 10 };
+      return { label: 'Stable', pct: 25 };
+    }
     const critical = alerts.filter(a => a.riskScore >= 75).length;
     const open = alerts.filter(a => a.status === 'Open').length;
     if (critical >= 3 || open >= 5) return { label: 'Elevated', pct: 75 };
     if (critical >= 1 || open >= 2) return { label: 'Heightened', pct: 55 };
     if (alerts.length === 0) return { label: 'Unknown', pct: 10 };
     return { label: 'Stable', pct: 25 };
-  }, [alerts]);
+  }, [alerts, telemetry]);
 
-  const accountsAnalysed = new Set(alerts.map(a => a.accountNumber)).size;
-  const criticalCount = alerts.filter(a => a.riskScore >= 75).length;
-  const totalExposure = alerts.reduce((sum, a) => sum + a.transactionAmount, 0);
+  const accountsAnalysed = React.useMemo(() => {
+    if (dataSource === 'live-target') return apiTargetCount;
+    if (dataSource === 'live-dataset') return apiDatasetCount;
+    return telemetry?.unique_accounts_analysed ?? new Set(alerts.map(a => a.accountNumber)).size;
+  }, [dataSource, apiTargetCount, apiDatasetCount, telemetry, alerts]);
+  const criticalCount = telemetry?.critical_alert_count ?? alerts.filter(a => a.riskScore >= 75).length;
+  const totalExposure = telemetry?.total_exposure_amount ?? alerts.reduce((sum, a) => sum + a.transactionAmount, 0);
 
-  const criticalRecent = alerts
-    .filter(a => {
-      if (tierFilter === 'CRITICAL') return a.riskScore >= 75;
-      if (tierFilter === 'HIGH') return a.riskScore >= 50 && a.riskScore < 75;
-      if (tierFilter === 'LOW') return a.riskScore < 50;
-      return a.riskScore >= 60;
-    })
-    .slice(0, 10);
+  const criticalRecent = alertsProp
+    ? alerts.filter(a => {
+        if (tierFilter === 'CRITICAL') return a.riskScore >= 75;
+        if (tierFilter === 'HIGH') return a.riskScore >= 50 && a.riskScore < 75;
+        if (tierFilter === 'LOW') return a.riskScore < 50;
+        return a.riskScore >= 60;
+      }).slice(0, 10)
+    : alerts.slice(0, 10);
 
   const donutRadius = 40;
   const donutCircumference = 2 * Math.PI * donutRadius;
@@ -202,7 +254,7 @@ export default function DashboardView({
 
   return (
     <div className="space-y-6">
-      {/* Header Info Panel */}
+      {}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className={`text-2xl font-extrabold tracking-tight ${isDark ? 'text-slate-100' : 'text-[#1a1b22]'}`}>
@@ -214,7 +266,7 @@ export default function DashboardView({
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
-          {/* Connection Status Badge */}
+          {}
           <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-colors ${
             isBackendOnline 
               ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-500' 
@@ -230,7 +282,7 @@ export default function DashboardView({
               onChange={(e) => setDataSource(e.target.value as DataSourceType)}
               className={`appearance-none font-sans text-xs px-3 py-2 pr-8 rounded-lg outline-none cursor-pointer border transition-colors ${
                 isDark 
-                  ? 'bg-black/20 border-slate-700 text-slate-350 focus:border-cyan-500' 
+                  ? 'bg-slate-800 border-slate-700 text-slate-200 focus:border-cyan-500' 
                   : 'bg-white border-[#c4c5d5] text-slate-700 focus:border-[#1e40af]'
               }`}
             >
@@ -247,11 +299,22 @@ export default function DashboardView({
             <Calendar size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
           </div>
 
-          <button 
-            onClick={handleGenerateReport}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-300 ${
-              isDark 
-                ? 'bg-cyan-500 hover:bg-cyan-600 text-[#051424] cyan-glow' 
+            <button 
+              onClick={() => setShowBiasAudit(true)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-300 ${
+                isDark 
+                  ? 'bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30' 
+                  : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200'
+              }`}
+            >
+              <ShieldCheck size={16} /> Bias Audit
+            </button>
+
+            <button 
+              onClick={handleGenerateReport}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-300 ${
+                isDark 
+                  ? 'bg-cyan-500 hover:bg-cyan-600 text-[#051424] cyan-glow' 
                 : 'bg-[#1e40af] hover:bg-opacity-90 text-white shadow-sm'
             }`}
           >
@@ -261,7 +324,7 @@ export default function DashboardView({
         </div>
       </div>
 
-      {/* Backend Connection Alert Banner */}
+      {}
       {!isBackendOnline && (
         <div className={`p-4 border rounded-xl text-xs flex items-center justify-between transition-all duration-300 ${
           isDark 
@@ -290,7 +353,7 @@ export default function DashboardView({
       )}
 
 
-      {/* Live Queue KPI Row (Glassmorphism Cards) */}
+      {}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="stitch-glass-card p-6 rounded-md relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
@@ -338,12 +401,12 @@ export default function DashboardView({
         </div>
       </div>
 
-      {/* Main Charts area */}
+      {}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* Terminal Area (replaces old Visualizer & feed) */}
+        {}
         <div className="lg:col-span-2 flex flex-col gap-6 w-full h-full">
           <div className="flex-1 flex flex-col min-h-[400px] bg-[#060a0b] border border-outline-variant/20 rounded-md overflow-hidden shadow-2xl relative group">
-            {/* Terminal Header */}
+            {}
             <div className="flex items-center justify-between px-4 py-2 bg-surface-container-low border-b border-outline-variant/10">
               <div className="flex items-center gap-2">
                 <div className="flex gap-1.5">
@@ -355,19 +418,19 @@ export default function DashboardView({
               </div>
             </div>
             
-            {/* Live Feed integrated into Terminal */}
+            {}
             <div className="p-4 flex-1 overflow-hidden">
                 <LiveFeed />
             </div>
 
-            {/* Subtle Glow */}
+            {}
             <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-primary/5 to-transparent pointer-events-none"></div>
           </div>
         </div>
 
-        {/* Right Column: Interactive Real-Time Risk Simulator */}
+        {}
         <div className="flex flex-col gap-6 w-full">
-            {/* Real-time Simulator */}
+            {}
             <div className="stitch-glass-card p-5 rounded-md flex flex-col">
               <div className="flex items-center gap-2 mb-4 border-b border-outline-variant/30 pb-2.5">
                 <Cpu className="w-4 h-4 text-cyan-500 animate-pulse" />
@@ -425,7 +488,7 @@ export default function DashboardView({
         </div>
       </div>
 
-      {/* Bottom recent critical alerts list panel */}
+      {}
 
       <div className={`rounded-xl overflow-hidden stitch-glass-card ${
         isDark ? 'text-slate-300' : ''
@@ -495,6 +558,8 @@ export default function DashboardView({
           </table>
         </div>
       </div>
+      
+      {showBiasAudit && <BiasAuditModal onClose={() => setShowBiasAudit(false)} />}
     </div>
   );
 }

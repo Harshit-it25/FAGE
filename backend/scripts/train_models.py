@@ -539,9 +539,23 @@ def main():
     # training on and reporting numbers from broken data.
     validate_dataset(X_raw, y, HIGHLIGHTED_FEATURES)
 
-    # 2. Stratified Train-Validation Split (60% Train, 40% Holdout evaluation)
+    # ── 3-WAY SPLIT: Train 55% / Val 20% / Test 25% ─────────────────────────
+    # The test set is locked away immediately and is NEVER touched until the
+    # very final metric report. Hyperparameters are selected via CV on Train;
+    # thresholds are tuned on Val; final AUC/Recall/Precision come from Test only.
+    # This eliminates the threshold-hacking bias in the previous 2-way split where
+    # the val set was both used for threshold selection AND for metric reporting.
+    X_temp, X_test_raw, y_temp, y_test = train_test_split(
+        X_raw, y, test_size=0.25, stratify=y, random_state=42
+    )
+    # 0.267 of remaining 0.75 ≈ 0.20 of total → gives roughly 55/20/25 split
     X_train_raw, X_val_raw, y_train, y_val = train_test_split(
-        X_raw, y, test_size=0.40, stratify=y, random_state=42
+        X_temp, y_temp, test_size=0.267, stratify=y_temp, random_state=42
+    )
+    logger.info(
+        f"Split sizes — Train: {len(y_train)} | Val (threshold tuning): {len(y_val)} | "
+        f"Test BLIND: {len(y_test)} | "
+        f"Fraud+ — Train: {int(y_train.sum())} Val: {int(y_val.sum())} Test: {int(y_test.sum())}"
     )
 
     # 3. Fit Preprocessing standardizer
@@ -555,6 +569,8 @@ def main():
     )
     X_train_proc = preprocessor.fit_transform(X_train_raw, y_train)
     X_val_proc = preprocessor.transform(X_val_raw)
+    # Test set is transformed with the TRAIN-fitted preprocessor — no refitting on test
+    X_test_proc = preprocessor.transform(X_test_raw)
 
     # 4. Feature Selection using Collinearity filtering, Mutual Information and RFECV
     logger.info("Executing recursive feature evaluation and selection steps...")
@@ -582,6 +598,8 @@ def main():
     selector.selected_features_ = X_train_sel_cols
     X_train_sel = X_train_proc[X_train_sel_cols]
     X_val_sel = X_val_proc[X_train_sel_cols]
+    # Same feature columns applied to blind test set — no data leakage possible
+    X_test_sel = X_test_proc[X_train_sel_cols]
     
     logger.info(f"Unified modeling selected features dimension: {X_train_sel.shape[1]}")
 
@@ -724,38 +742,81 @@ def main():
     with open(f"{model_output_dir}/cost_optimizer.pkl", "wb") as f:
         pickle.dump(cost_optimizer, f)
 
-    # Re-evaluate each model at ITS OWN cost-optimal threshold, not a threshold borrowed from
-    # the Ensemble. Each model has a different probability calibration, so the Ensemble's
-    # Balanced threshold (e.g. 0.01) doesn't necessarily minimize cost for XGBoost's own
-    # probability distribution -- applying one model's threshold to another's scores is an
-    # apples-to-oranges mismatch that can leave real cost (and real missed frauds) on the table.
-    logger.info("--- Recalculating metrics at each model's OWN cost-optimal threshold ---")
+    # ── STEP 1: Lock thresholds on VAL set ──────────────────────────────────
+    # Val was not used for hyperparameter CV (that ran on Train), so using it
+    # here for threshold selection does NOT constitute data leakage. Each model
+    # gets its own cost-optimal threshold calibrated against its own probability
+    # distribution rather than sharing the Ensemble's threshold.
+    logger.info("--- Locking per-model cost-optimal thresholds on VAL set ---")
     per_model_thresholds = {}
+    val_metrics_map = {}
     for name, model in trained_models.items():
-        probs = model.predict_proba(X_val_sel)[:, 1]
+        val_probs = model.predict_proba(X_val_sel)[:, 1]
         model_cost_summary = FAGECostOptimizer(c_fn=388000.0, c_fp=1200.0).optimize_thresholds(
-            probs, y_val, c_factor=pu_engine.c_
+            val_probs, y_val, c_factor=pu_engine.c_
         )
         own_threshold = model_cost_summary["operating_points"]["Balanced"]["threshold"]
         per_model_thresholds[name] = own_threshold
-        preds = (probs >= own_threshold).astype(int)
-        metrics_map[name] = {
-            "accuracy": float(accuracy_score(y_val, preds)),
-            "precision": float(precision_score(y_val, preds, zero_division=0)),
-            "recall": float(recall_score(y_val, preds, zero_division=0)),
-            "f1": float(f1_score(y_val, preds, zero_division=0)),
-            "roc_auc": float(roc_auc_score(y_val, probs)),
-            "pr_auc": float(average_precision_score(y_val, probs)),
-            "confusion_matrix": confusion_matrix(y_val, preds).tolist(),
-            "threshold": own_threshold
+        val_preds = (val_probs >= own_threshold).astype(int)
+        val_metrics_map[name] = {
+            "accuracy": float(accuracy_score(y_val, val_preds)),
+            "precision": float(precision_score(y_val, val_preds, zero_division=0)),
+            "recall": float(recall_score(y_val, val_preds, zero_division=0)),
+            "f1": float(f1_score(y_val, val_preds, zero_division=0)),
+            "roc_auc": float(roc_auc_score(y_val, val_probs)),
+            "pr_auc": float(average_precision_score(y_val, val_probs)),
+            "confusion_matrix": confusion_matrix(y_val, val_preds).tolist(),
+            "threshold": own_threshold,
+            "split": "val_threshold_tuning"
         }
-        logger.info(f"{name}: own cost-optimal threshold={own_threshold}, "
-                    f"fn={metrics_map[name]['confusion_matrix'][1][0]}, "
-                    f"fp={metrics_map[name]['confusion_matrix'][0][1]}")
+        logger.info(f"{name}: threshold={own_threshold:.4f} locked from val "
+                    f"(val fn={val_metrics_map[name]['confusion_matrix'][1][0]}, "
+                    f"fp={val_metrics_map[name]['confusion_matrix'][0][1]})")
     with open("per_model_cost_thresholds.json", "w") as f:
         json.dump(per_model_thresholds, f, indent=2)
+    with open("val_metrics.json", "w") as f:
+        json.dump(val_metrics_map, f, indent=4)
+    logger.info("Val metrics written to val_metrics.json (threshold-tuning split — not the final report).")
+
+    # ── STEP 2: ONE-SHOT evaluation on BLIND TEST set ────────────────────────
+    # This set has never been seen during ANY tuning step. Thresholds from
+    # STEP 1 are applied directly — they are NOT re-optimized on the test set.
+    # This is the ONLY number that is honest to report externally.
+    logger.info("--- ONE-SHOT BLIND TEST SET EVALUATION (official metrics) ---")
+    test_metrics_map = {}
+    for name, model in trained_models.items():
+        test_probs = model.predict_proba(X_test_sel)[:, 1]
+        threshold = per_model_thresholds[name]  # locked from val, NOT re-tuned
+        test_preds = (test_probs >= threshold).astype(int)
+        test_metrics_map[name] = {
+            "accuracy": float(accuracy_score(y_test, test_preds)),
+            "precision": float(precision_score(y_test, test_preds, zero_division=0)),
+            "recall": float(recall_score(y_test, test_preds, zero_division=0)),
+            "f1": float(f1_score(y_test, test_preds, zero_division=0)),
+            "roc_auc": float(roc_auc_score(y_test, test_probs)),
+            "pr_auc": float(average_precision_score(y_test, test_probs)),
+            "confusion_matrix": confusion_matrix(y_test, test_preds).tolist(),
+            "threshold": threshold,
+            "split": "test_blind"
+        }
+        val_f1 = val_metrics_map[name]["f1"]
+        test_f1 = test_metrics_map[name]["f1"]
+        overfit_gap = val_f1 - test_f1
+        logger.info(
+            f"{name}: TEST precision={test_metrics_map[name]['precision']:.4f} "
+            f"recall={test_metrics_map[name]['recall']:.4f} "
+            f"f1={test_f1:.4f} roc_auc={test_metrics_map[name]['roc_auc']:.4f} "
+            f"| val_f1={val_f1:.4f} overfit_gap={overfit_gap:+.4f}"
+        )
+        if overfit_gap > 0.10:
+            logger.warning(
+                f"{name}: overfit gap {overfit_gap:.3f} > 0.10 — investigate whether "
+                "the dataset is too small or val/test splits are too unbalanced."
+            )
+    # metrics.json = OFFICIAL output, blind test set numbers ONLY
     with open("metrics.json", "w") as f:
-        json.dump(metrics_map, f, indent=4)
+        json.dump(test_metrics_map, f, indent=4)
+    logger.info("OFFICIAL metrics.json written (blind test set — these are the reportable numbers).")
 
     # 10. Initialize Operational Triage Policy
     logger.info("--- Initializing & Verifying Operational Triage Policy ---")

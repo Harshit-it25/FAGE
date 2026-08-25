@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Literal
 from pydantic import BaseModel, Field
 
 class PredictRequest(BaseModel):
@@ -23,7 +23,7 @@ class RiskScoreRequest(BaseModel):
     )
 
 class AlertUpdateRequest(BaseModel):
-    status: str = Field(..., max_length=32, description="Action state: Open, Investigating, Escalated, Closed.")
+    status: Optional[Literal['Open', 'Investigating', 'Escalated', 'Closed']] = Field(None, description="Action state: Open, Investigating, Escalated, Closed.")
     notes: Optional[str] = Field(None, max_length=5000, description="Operational remarks/case ledger inputs.")
     assigned_to: Optional[str] = Field(None, max_length=128, description="Operator assignment name.")
     operator_name: Optional[str] = Field("System Operator", max_length=128, description="Name of the operator making the change.")
@@ -33,9 +33,9 @@ class AlertIngestRequest(BaseModel):
     sender_id: Optional[str] = Field("ACC-UNKN", max_length=128, description="Sender account.")
     receiver_id: Optional[str] = Field("ACC-UNKN", max_length=128, description="Receiver account.")
     amount: float = Field(..., ge=0.0, le=1_000_000_000, description="Transaction amount.")
-    risk_score: int = Field(..., ge=0, le=100, description="1-100 risk score")
+    risk_score: Optional[int] = Field(None, ge=0, le=100, description="1-100 risk score")
     severity: Optional[str] = Field(None, max_length=32, description="Calculated automatically if null.")
-    status: Optional[str] = Field("Open", max_length=32, description="Alert status state: Open, Investigating, Escalated, Closed.")
+    status: Optional[Literal['Open', 'Investigating', 'Escalated', 'Closed']] = Field("Open", description="Alert status state: Open, Investigating, Escalated, Closed.")
     reason: Optional[str] = Field("Manual external legacy rule sync ingestion.", max_length=2000, description="Alert rationale.")
     timestamp: Optional[str] = Field(None, max_length=64, description="ISO timestamp string.")
     assigned_to: Optional[str] = Field("Unassigned", max_length=128, description="Operator assignment.")
@@ -70,7 +70,7 @@ class TriageEvalRequest(BaseModel):
 
 class FeedbackRequest(BaseModel):
     alert_id: str = Field(..., max_length=128, description="Alert ID or Account ID being reviewed")
-    label: str = Field(..., max_length=64, description="Ground truth label: 'True Positive', 'False Positive', 'Mule Ring', 'Suspicious'")
+    label: Literal['True Positive', 'False Positive', 'Mule Ring', 'Suspicious'] = Field(..., description="Ground truth label")
     analyst_notes: Optional[str] = Field(None, max_length=5000, description="Detailed notes on investigation rationale")
     trigger_recalibration: bool = Field(True, description="Whether to trigger online PU and threshold recalibration")
     tenant_id: Optional[str] = Field("TN-GLOBAL-01", max_length=128, description="Tenant ID")

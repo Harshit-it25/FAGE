@@ -4,13 +4,14 @@ import uuid
 import logging
 import pickle
 import json
+import joblib
 from datetime import datetime, UTC
 from typing import Dict, List, Tuple, Any, Optional
 
 import numpy as np
 import pandas as pd
 
-# Add system pathways to resolve modules in full stack container
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.ml.preprocessing import FAGEPreprocessor
 from app.ml.feature_selection import FAGEFeatureSelector
@@ -20,7 +21,7 @@ from app.ml.shap_interactions import FAGEShapInteractionEngine
 from app.ml.triage_policy import FAGETriagePolicy
 from app.ml.cost_optimizer import FAGECostOptimizer
 
-# Setup logging
+
 logger = logging.getLogger("FAGE.Services.RiskEngine")
 if not logger.handlers:
     handler = logging.StreamHandler(sys.stdout)
@@ -93,11 +94,11 @@ class FAGERiskEngine:
         self.default_model_name = default_model_name
         self.override_rules_enabled = override_rules_enabled
 
-        # Pipelines
+        
         self.preprocessor: Optional[FAGEPreprocessor] = None
         self.selector: Optional[FAGEFeatureSelector] = None
         
-        # Classifier configurations
+        
         self.classifiers: Dict[str, Any] = {}
         self.classifier: Any = None
         self.isolation_forest: Any = None
@@ -109,18 +110,19 @@ class FAGERiskEngine:
         self.bootstrap_models: List[Any] = []
         self.background_sample: Optional[pd.DataFrame] = None
         
-        # Risk score blending metadata
+        
         self.anomaly_score_min: Optional[float] = None
         self.anomaly_score_max: Optional[float] = None
         
         self.is_production_ready = False
+        self.v4_bundle = None
         self._load_pipeline_components()
         self._load_risk_metadata()
 
-        # Human-readable feature name/description lookup (F-code -> real bank variable name +
-        # description, sourced directly from the organizer's Description.xlsx data dictionary).
-        # Used so investigation summaries say e.g. "Cash withdrawal transactions (14 days)"
-        # instead of the opaque code "F284" -- this is real metadata, not generated text.
+        
+        
+        
+        
         self.feature_descriptions: Dict[str, Dict[str, str]] = {}
         feat_desc_path = os.path.join(self.models_dir, "..", "data", "feature_descriptions.json")
         if os.path.exists(feat_desc_path):
@@ -136,6 +138,17 @@ class FAGERiskEngine:
         """
         Loads fitted pipeline serializers and multiple algorithm models.
         """
+        v4_bundle_path = os.path.join(self.models_dir, "v4_model_bundle.joblib")
+        if os.path.exists(v4_bundle_path):
+            try:
+                self.v4_bundle = joblib.load(v4_bundle_path)
+                logger.info(f"Successfully loaded v4 model bundle from {v4_bundle_path}")
+            except Exception as e:
+                logger.error(f"Failed to load v4 model bundle: {e}")
+                self.v4_bundle = None
+        else:
+            logger.info(f"v4 model bundle not found at {v4_bundle_path}. Falling back to legacy pickles.")
+
         preprocessor_path = os.path.join(self.models_dir, "preprocessor.pkl")
         selector_path = os.path.join(self.models_dir, "selector.pkl")
 
@@ -159,7 +172,7 @@ class FAGERiskEngine:
             self._deploy_fallback_proxies()
             return
 
-        # Sequential loading strategy for classifiers
+        
         model_names = [
             "xgboost"
         ]
@@ -176,7 +189,7 @@ class FAGERiskEngine:
                 except Exception as e:
                     logger.error(f"Class loading failure on pickle '{filename}': {str(e)}")
 
-        # Enforce strict model loading without fallback proxies
+        
         if loaded_count < len(model_names):
             logger.warning(f"Only {loaded_count}/{len(model_names)} modeling pickles loaded. Strict mode enforced: no mock classifiers will be created for missing models.")
 
@@ -192,7 +205,7 @@ class FAGERiskEngine:
                 logger.error(f"Failed to load background sample: {str(e)}. Falling back to synthetic zeros.")
                 self.background_sample = None
 
-        # Load PU Engine
+        
         pu_path = os.path.join(self.models_dir, "pu_engine.pkl")
         if os.path.exists(pu_path):
             try:
@@ -205,10 +218,10 @@ class FAGERiskEngine:
         else:
             self.pu_engine = FAGEPUEngine()
 
-        # Initialize Adaptive Engine
+        
         self.adaptive_engine = FAGEAdaptiveEngine(self.pu_engine)
 
-        # Load Triage Policy
+        
         triage_path = os.path.join(self.models_dir, "triage_policy.pkl")
         if os.path.exists(triage_path):
             try:
@@ -221,7 +234,7 @@ class FAGERiskEngine:
         else:
             self.triage_policy = FAGETriagePolicy()
 
-        # Load Cost Optimizer
+        
         cost_path = os.path.join(self.models_dir, "cost_optimizer.pkl")
         if os.path.exists(cost_path):
             try:
@@ -271,13 +284,13 @@ class FAGERiskEngine:
         self.classifier = self.classifiers[normalized_name]
         self.default_model_name = normalized_name.upper()
 
-        # Recalibrate the triage policy's risk-tier thresholds to match THIS model's actual
-        # cost-optimal probability threshold. FAGETriagePolicy's defaults (medium=50, high=75
-        # on a 0-100 scale) assume scores spread across the full range -- but with a ~0.9% base
-        # fraud rate, real scores cluster far below that (cost-optimal thresholds here run
-        # ~0.7-3 out of 100). Without this, triage_routing can output "STANDARD_MONITORING /
-        # Low priority" for the exact same account the scorecard just labeled "Escalate", which
-        # is a genuine contradiction two compliance-facing fields in the same response.
+        
+        
+        
+        
+        
+        
+        
         if hasattr(self, "per_model_thresholds") and self.per_model_thresholds and self.triage_policy is not None:
             thr = self.per_model_thresholds.get(normalized_name)
             if thr:
@@ -317,6 +330,7 @@ class FAGERiskEngine:
         self.triage_policy = FAGETriagePolicy()
         self.cost_optimizer = FAGECostOptimizer()
         self.is_production_ready = False
+        self.v4_bundle = None
         logger.info("Fallback modeling proxies loaded — NOT production ready, /predict will correctly refuse to serve.")
 
     def map_probability_to_scorecard(self, probability: float, decision_threshold: Optional[float] = None) -> Tuple[int, str, str]:
@@ -499,14 +513,14 @@ class FAGERiskEngine:
 
         df_row = pd.DataFrame([flat_record])
         
-        # 2. Run active classifier probability
+        
         try:
             raw_prob = float(self.classifier.predict_proba(df_row)[0, 1])
         except Exception as e:
             logger.error(f"Prediction execution failed: {str(e)}. Defaulting base probability to 0.12")
             raw_prob = 0.12
 
-        # 2b. Bootstrap confidence interval
+        
         ci_lower, ci_upper, ci_width = None, None, None
         if self.bootstrap_models:
             try:
@@ -517,11 +531,11 @@ class FAGERiskEngine:
             except Exception as e:
                 logger.error(f"Bootstrap CI computation failed: {str(e)}")
         else:
-            # Removed fabricated UI fallback.
-            # Confidence bounds are now derived purely from strict PU probability margins rather than synthetic intervals.
+            
+            
             pass
 
-        # 2c. PU probability calibration
+        
         prob = raw_prob
         if self.pu_engine and hasattr(self.pu_engine, "calibrate_probabilities"):
             try:
@@ -529,12 +543,12 @@ class FAGERiskEngine:
             except Exception as e:
                 logger.error(f"PU calibration failed: {str(e)}")
 
-        # 3. Formulate pure ML risk indicators, anchored to THIS model's own cost-optimal
-        # threshold (not a fixed score cutoff -- see map_probability_to_scorecard docstring).
+        
+        
         active_threshold = self.per_model_thresholds.get(self.default_model_name.lower())
         ml_score, ml_severity, ml_decision = self.map_probability_to_scorecard(prob, active_threshold)
         
-        # 4. Process deterministic compliance overrides
+        
         overrides = self.evaluate_heuristic_overrides(raw_payload)
         
         final_score = ml_score
@@ -552,7 +566,7 @@ class FAGERiskEngine:
                 _, _, final_decision = self.map_probability_to_scorecard(final_score / 100.0, active_threshold)
                 logger.info(f"Risk indicators elevated by override rules: {max_rule['rule_id']}. Upgraded score to {final_score}")
 
-        # 5. Extract localized Shapley coordinates
+        
         row_series = df_row.iloc[0]
         shaps_raw = self.shap_engine.compute_local_shap(row_series)
         waterfall_data = self.shap_engine.generate_waterfall_data(row_series)
@@ -576,7 +590,7 @@ class FAGERiskEngine:
         if final_score >= review_score_cutoff:
             evasion_analysis = self.compute_evasion_resistance(df_row, sorted_drivers, prob)
 
-        # 6. Operational Triage Routing
+        
         triage_routing = None
         if self.triage_policy and hasattr(self.triage_policy, "evaluate_account"):
             try:
@@ -626,18 +640,18 @@ class FAGERiskEngine:
                 "waterfall_visuals": waterfall_data,
                 "evasion_resistance": evasion_analysis
             },
-            # Real preprocessed feature vector -- exactly what the classifier scored on. Stored
-            # so /similar-cases can compute cosine similarity over the actual ~1,730-dim
-            # feature space, not just the thin raw request payload (amount, account age, etc).
+            
+            
+            
             "model_input_features": {k: float(v) for k, v in flat_record.items()}
         }
         
         return scorecard
 
-    # Priority 3: Playbook Actions -- a concrete checklist per triage action code, not just a
-    # label. This is operational policy logic (like triage_policy.py itself), not fabricated
-    # data: it maps the REAL triage_action already computed above to standard AML playbook
-    # steps a bank would actually run.
+    
+    
+    
+    
     PLAYBOOK_ACTIONS = {
         "FAST_TRACK_FREEZE": [
             "Freeze outgoing transfers",
@@ -688,13 +702,13 @@ class FAGERiskEngine:
 
         evidence = []
 
-        # 1. Prediction stability across the bootstrap ensemble (real, from 20 resampled
-        # models). NOTE: this measures ensemble AGREEMENT, not the point estimate's strength --
-        # with only 81 real fraud examples in training, bootstrap-resampled models can disagree
-        # sharply on a given case even when the point probability itself is high. Framed
-        # separately from the point estimate (not as a single "confidence %") so a wide interval
-        # reads as "treat this number with appropriate caution," not as a contradiction of the
-        # risk score.
+        
+        
+        
+        
+        
+        
+        
         ci = scores.get("confidence_interval_90", {})
         if ci.get("lower") is not None:
             ci_lower_pct = round(ci["lower"] * 100, 1)
@@ -716,11 +730,11 @@ class FAGERiskEngine:
                 )
             })
 
-        # 2. Top SHAP driver(s), translated to human-readable names via the real data dictionary
-        # Driver dicts use .get() with fallbacks rather than bare [] access: the canonical
-        # live-scoring schema is {feature, direction, importance_attribution}, but older or
-        # synthetic/seeded records may only carry {feature, importance} -- a bare [] lookup
-        # on those raised an unhandled KeyError that took down the whole /correlate response.
+        
+        
+        
+        
+        
         for driver in expl.get("key_risk_drivers", [])[:2]:
             code = driver.get("feature")
             if not code:
@@ -735,7 +749,7 @@ class FAGERiskEngine:
                 "text": f"{readable} {direction} risk (SHAP contribution: {pct} points)."
             })
 
-        # 3. Rule engine overrides (real, from rules_audit)
+        
         if rules.get("triggered_rules_count", 0) > 0:
             rule_ids = [o.get("rule_id", "unnamed rule") for o in rules.get("overrides", [])]
             evidence.append({
@@ -743,8 +757,8 @@ class FAGERiskEngine:
                 "text": f"Compliance rule engine triggered: {', '.join(rule_ids)}."
             })
 
-        # 4. Network/graph signal -- ALWAYS labeled as the Investigation Simulation layer,
-        # never presented as derived from the real dataset (see data_provenance elsewhere).
+        
+        
         if graph_intel:
             flows = graph_intel.get("circular_flows", [])
             if flows:
@@ -768,7 +782,7 @@ class FAGERiskEngine:
                     )
                 })
 
-        # Assessment sentence -- templated from real decision, not free-generated
+        
         decision_phrase = {
             "Block": "exhibits strong characteristics consistent with mule-account or fraud activity",
             "Escalate": "exhibits characteristics consistent with potential mule-account activity",
@@ -777,20 +791,20 @@ class FAGERiskEngine:
         }.get(decision, "requires review")
         assessment = f"This account {decision_phrase} (model probability: {prob_pct}%)."
 
-        # Recommendation -- pulled from the real triage_action via the playbook mapping (a
-        # concrete checklist), with the model's own rationale kept as separate supporting text
-        # rather than conflated into one sentence.
+        
+        
+        
         triage = cats.get("triage_routing") or {}
         recommended_actions = self.get_playbook_actions(triage.get("triage_action"))
         triage_rationale = triage.get("rationale")
 
-        # Priority 2: Risk decomposition. This decomposes exactly what final_risk_score is
-        # actually computed from (Model + Rule overrides) -- these two always sum to
-        # final_risk_score, so the percentages are exact, not illustrative. Network/graph signal
-        # is NEVER blended into this decomposition or presented as part of the percentage,
-        # because final_risk_score genuinely does not incorporate the simulation layer today;
-        # showing it as a separate, clearly-labeled indicator avoids overstating what the score
-        # is actually built from.
+        
+        
+        
+        
+        
+        
+        
         base_ml = scores.get("base_ml_score", 0)
         final = scores.get("final_risk_score", base_ml)
         rule_contribution = max(0, final - base_ml)
@@ -841,7 +855,7 @@ class FAGERiskEngine:
             
         old_c, new_c, old_spy, new_spy = self.pu_engine.online_recalibrate(label, score=alert_score)
         
-        # Persist updated PU engine object
+        
         try:
             pu_path = os.path.join(self.models_dir, "pu_engine.pkl")
             os.makedirs(self.models_dir, exist_ok=True)
@@ -850,7 +864,7 @@ class FAGERiskEngine:
         except Exception as e:
             logger.error(f"Failed to save pu_engine.pkl during online recalibration: {e}")
 
-        # Update pu_metrics.json
+        
         pu_json_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pu_metrics.json")
         data = {}
         if os.path.exists(pu_json_path):
@@ -867,7 +881,7 @@ class FAGERiskEngine:
             if "spy_statistics" in data and isinstance(data["spy_statistics"], dict):
                 data["spy_statistics"]["spy_threshold"] = new_spy
 
-        # Track closed loop metrics
+        
         counts = data.get("closed_loop_feedback_counts", {"True Positive": 0, "False Positive": 0, "Mule Ring": 0, "Other": 0})
         clean_label = label.strip()
         if clean_label in counts:
@@ -944,7 +958,7 @@ class FAGERiskEngine:
 
 
 if __name__ == "__main__":
-    # Internal validation block
+    
     print("=== INITIAL TESTING PIPELINE ON FAGE RISKENGINE ===")
     engine = FAGERiskEngine(override_rules_enabled=True)
     

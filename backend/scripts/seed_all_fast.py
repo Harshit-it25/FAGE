@@ -23,7 +23,7 @@ def seed_all_fast():
     db.commit()
 
     print("Loading full dataset...")
-    df = pd.read_csv("../DataSet.csv")
+    df = pd.read_csv("../data/DataSet.csv")
     
     target_col = [c for c in df.columns if c.lower() == "f3924"][0]
     labels = df[target_col].values
@@ -35,14 +35,14 @@ def seed_all_fast():
     print("Batch preprocessing...")
     start = time.time()
     
-    # 1. Transform all rows at once
+    
     processed_df = risk_engine.preprocessor.transform(raw_df)
     selected_df = risk_engine.selector.transform(processed_df)
     
-    # 2. Predict all at once
+    
     raw_probs = risk_engine.classifier.predict_proba(selected_df)[:, 1]
     
-    # 3. Calibrate all at once
+    
     if risk_engine.pu_engine and hasattr(risk_engine.pu_engine, "calibrate_probabilities"):
         probs = risk_engine.pu_engine.calibrate_probabilities(raw_probs)
     else:
@@ -50,7 +50,7 @@ def seed_all_fast():
         
     print(f"ML execution completed in {time.time() - start:.2f}s")
     
-    # 4. We can compute batch SHAP for the top drivers (this is fast for TreeExplainer)
+    
     print("Computing batch SHAP values...")
     start = time.time()
     import shap
@@ -71,7 +71,7 @@ def seed_all_fast():
     
     records = []
     
-    # Insert in batches
+    
     BATCH_SIZE = 1000
     
     for i in range(total):
@@ -87,9 +87,9 @@ def seed_all_fast():
         
         ts = now - timedelta(hours=random.randint(0, 168), minutes=random.randint(0, 60))
         
-        # Build explainability quickly
+        
         sv = shap_vals[i]
-        # Get top 3 risk drivers
+        
         driver_indices = sorted(range(len(sv)), key=lambda x: sv[x], reverse=True)[:3]
         
         drivers = []
@@ -130,7 +130,7 @@ def seed_all_fast():
             timestamp=ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
             assigned_to="System Operator" if status != "Open" else "Unassigned",
             logs=json.dumps(logs_trail),
-            features="{}", # Skip huge feature payload to keep DB fast
+            features="{}", 
             explainability=json.dumps(expl_payload),
             _ts=ts.timestamp(),
             triage_action="Escalate" if ml_score > 75 else "Review",

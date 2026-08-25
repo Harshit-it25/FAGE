@@ -1,15 +1,9 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import { SystemConfig } from '../types';
 
-// Always use the Vite dev proxy at /api — this avoids all browser CORS issues.
-// The proxy (vite.config.ts) forwards /api/* → http://localhost:8000/* server-side,
-// so no cross-origin request ever reaches the browser level.
 const getBaseUrl = (): string => '/api';
 
 
-/**
- * Axios client configured with standard timeout, headers, and interceptors.
- */
 export const apiClient: AxiosInstance = axios.create({
   baseURL: getBaseUrl(),
   timeout: 60000,
@@ -17,26 +11,27 @@ export const apiClient: AxiosInstance = axios.create({
     'Content-Type': 'application/json',
     Accept: 'application/json',
   },
+  withCredentials: true,
 });
 
-// Configure default response interceptors for custom error handling
+import { clearSession } from './auth';
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => response,
-  async (error) => {
+  (error) => {
     const customError = {
       message: error.response?.data?.detail || error.message || 'An unexpected API error occurred',
       status: error.response?.status,
       data: error.response?.data,
     };
     if (error.response?.status === 401) {
-      try {
-        const { clearSession } = await import('./auth');
+      // Prevent infinite loops if login or logout itself returns 401
+      const url = error.config?.url || '';
+      if (!url.includes('/logout') && !url.includes('/token')) {
         clearSession();
-        if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
-          window.location.href = '/login';
+        if (typeof window !== 'undefined') {
+          const event = new CustomEvent('auth_unauthorized');
+          window.dispatchEvent(event);
         }
-      } catch {
-        /* ignore */
       }
     }
     console.error('[API Integration Service Error]:', customError);
@@ -44,9 +39,6 @@ apiClient.interceptors.response.use(
   }
 );
 
-// ============================================================================
-//                       TypeScript Interface Contracts
-// ============================================================================
 
 export interface PredictRequest {
   features: Record<string, number>;
@@ -173,7 +165,10 @@ export interface DashboardTelemetryResponse {
   telemetry: {
     total_incidents_recorded: number;
     unique_accounts_analysed?: number;
+    mule_alert_count?: number;
+    dataset_alert_count?: number;
     critical_alert_count?: number;
+    total_exposure_amount?: number;
     critical_exposure_amount?: number;
     mule_exposure_amount?: number;
     average_risk_rating: number;
@@ -269,11 +264,14 @@ export interface AlertInfo {
 export interface AlertsResponse {
   status: string;
   alerts_count: number;
+  total_count: number;
+  offset: number;
+  limit: number;
   alerts: AlertInfo[];
 }
 
 export interface AlertUpdateRequest {
-  status: 'Open' | 'Investigating' | 'Escalated' | 'Closed';
+  status?: 'Open' | 'Investigating' | 'Escalated' | 'Closed';
   notes?: string;
   assigned_to?: string;
   operator_name?: string;
@@ -369,6 +367,8 @@ export interface SimilarCasesResponse {
 
 interface SARResponse {
   sar_report: string;
+  fincen_tracking_id?: string;
+  citation_hash?: string;
 }
 
 interface AdversarialShiftStatus {
@@ -476,9 +476,6 @@ interface DPResetResponse {
   budget_status: DPBudgetStatus;
 }
 
-// ============================================================================
-//                         API Integration Methods
-// ============================================================================
 
 export const fageApi = {
   login: async (username: string, password: string) => {
@@ -491,61 +488,46 @@ export const fageApi = {
     return response.data;
   },
 
-  /**
-   * Fetch aggregate operational and decision telemetry metrics for dashboards.
-   */
   getDashboardSummary: async (): Promise<DashboardTelemetryResponse> => {
     const response = await apiClient.get<DashboardTelemetryResponse>('/dashboard');
     return response.data;
   },
 
-  /**
-   * Fetch performance evaluation and confusion matrix indicators across trained algorithms.
-   */
   getModelMetrics: async (): Promise<ModelMetricsResponse> => {
     const response = await apiClient.get<ModelMetricsResponse>('/metrics');
     return response.data;
   },
 
-  /**
-   * Fetch global Shapley feature aggregations and scatter plot coordinates.
-   */
   getFeatureImportance: async (): Promise<FeatureImportanceResponse> => {
     const response = await apiClient.get<FeatureImportanceResponse>('/feature-importance');
     return response.data;
   },
 
-  /**
-   * Run immediate transactional attribute classifications.
-   */
   predictFraudProbability: async (payload: PredictRequest): Promise<PredictResponse> => {
     const response = await apiClient.post<PredictResponse>('/predict', payload);
     return response.data;
   },
 
-  /**
-   * Fetch explicit local instance attributions and formatted Waterfall steps.
-   */
   explainCaseAttribution: async (payload: PredictRequest): Promise<ExplainResponse> => {
     const response = await apiClient.post<ExplainResponse>('/explain', payload);
     return response.data;
   },
 
-  /**
-   * Score raw transfers against machine learning and compliance rule policies.
-   */
   scoreAndEvaluateTransaction: async (payload: RiskScoreRequest): Promise<ScorecardResponse> => {
     const response = await apiClient.post<ScorecardResponse>('/risk-score', payload);
     return response.data;
   },
 
-  /**
-   * Query incident queue with optional alert filter states.
-   */
   listAlertsQueue: async (filters?: {
     status_filter?: string;
     severity_filter?: string;
+    source_filter?: 'all' | 'target' | 'dataset';
+    search?: string;
+    assigned_to?: string;
+    min_score?: number;
+    max_score?: number;
     limit?: number;
+    offset?: number;
   }): Promise<AlertsResponse> => {
     const response = await apiClient.get<AlertsResponse>('/alerts', {
       params: filters,
@@ -553,17 +535,16 @@ export const fageApi = {
     return response.data;
   },
 
-  /**
-   * Push manual or legacy synchronized alert incident metrics into the audit database.
-   */
+  getAlertById: async (alertId: string): Promise<{ status: string; alert: AlertInfo }> => {
+    const response = await apiClient.get<{ status: string; alert: AlertInfo }>(`/alerts/${alertId}`);
+    return response.data;
+  },
+
   ingestSimulatedAlert: async (payload: Partial<AlertInfo>): Promise<{ status: string; created_alert_id: string }> => {
     const response = await apiClient.post<{ status: string; created_alert_id: string }>('/alerts', payload);
     return response.data;
   },
 
-  /**
-   * Apply status revisions and write analyst audit notes.
-   */
   updateAlertStatus: async (alertId: string, payload: AlertUpdateRequest): Promise<{ status: string; message: string; alert: AlertInfo }> => {
     const response = await apiClient.put<{ status: string; message: string; alert: AlertInfo }>(`/alerts/${alertId}`, payload);
     return response.data;
@@ -574,49 +555,34 @@ export const fageApi = {
     return response.data;
   },
 
-  /**
-   * Fetch raw dataset features for an alert
-   */
   getAlertFeatures: async (alertId: string): Promise<{ status: string; features: Record<string, any> }> => {
     const response = await apiClient.get<{ status: string; features: Record<string, any> }>(`/alerts/${alertId}/features`);
     return response.data;
   },
 
-  /**
-   * Priority 5: Similar Past Cases via real cosine similarity over the model's actual
-   * feature vectors. No fabricated case outcomes -- status shown is the real recorded value.
-   */
   similarCases: async (alertId: string, topN: number = 5): Promise<SimilarCasesResponse> => {
     const response = await apiClient.get<SimilarCasesResponse>(`/similar-cases/${alertId}`, {
       params: { top_n: topN },
     });
     return response.data;
   },
-  
-  generateSAR: async (alertId: string): Promise<SARResponse> => {
+
+    generateSAR: async (alertId: string): Promise<SARResponse> => {
     const response = await apiClient.post<SARResponse>(`/alerts/${alertId}/sar`);
     return response.data;
   },
 
-  /**
-   * Real per-account explanation (backed by SHAP key risk drivers), translated into
-   * plain English for a non-technical analyst. Not mock copy — calls the live endpoint.
-   */
   explainPlainLanguage: async (alertId: string): Promise<{ explanation: string }> => {
     const response = await apiClient.post<{ explanation: string }>(`/alerts/${alertId}/explain-plain-language`);
     return response.data;
   },
 
-  /**
-   * Formal record of every model evaluated, including ones rejected, with the real
-   * evidence behind each decision. Governance artifact, not a marketing endpoint.
-   */
   getModelRegistry: async (): Promise<Record<string, unknown>> => {
     const response = await apiClient.get<Record<string, unknown>>('/model-registry');
     return response.data;
   },
-  
-  tuneThreshold: async (newThreshold: number): Promise<{status: string, message: string, new_threshold: number}> => {
+
+    tuneThreshold: async (newThreshold: number): Promise<{status: string, message: string, new_threshold: number}> => {
     const response = await apiClient.post('/tune-threshold', { new_threshold: newThreshold });
     return response.data;
   },
@@ -714,6 +680,18 @@ export const fageApi = {
   getConfig: async (): Promise<SystemConfig> => {
     const response = await apiClient.get('/config');
     return response.data;
+  },
+
+  getBiasAudit: async (): Promise<any> => {
+    const response = await apiClient.get('/bias-audit');
+    return response.data;
+  },
+
+  connectAlertStream: (): EventSource => {
+    const url = new URL('/api/stream-alerts', window.location.origin);
+    const token = localStorage.getItem('fage_access_token') || '';
+    if (token) url.searchParams.append('token', token);
+    return new EventSource(url.toString(), { withCredentials: true });
   },
 };
 

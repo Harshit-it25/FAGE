@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Alert, AnalystNote, SystemTheme, TriageDecision } from '../types';
 import { fageApi, CorrelateResponse, SimilarCasesResponse } from '../services/api';
+import { usePaginatedAlerts } from '../hooks/useFageApi';
+import { mapApiAlert } from '../utils/mapAlert';
 import { formatINR } from '../utils/format';
 import { NetworkGraph } from './NetworkGraph';
 import { 
@@ -34,6 +36,8 @@ interface InvestigationWorkbenchViewProps {
   theme: SystemTheme;
   alerts?: Alert[];
   onSelectAlert?: (id: string) => void;
+  dataSource?: import('../types').DataSourceType;
+  isBackendOnline?: boolean;
 }
 
 export default function InvestigationWorkbenchView({
@@ -41,9 +45,11 @@ export default function InvestigationWorkbenchView({
   notes,
   onAddNote,
   onUpdateStatus,
-  alerts,
+  alerts: alertsProp,
   onSelectAlert,
-  theme
+  theme,
+  dataSource = 'live-all',
+  isBackendOnline = true,
 }: InvestigationWorkbenchViewProps) {
   
   const [noteContent, setNoteContent] = useState('');
@@ -53,11 +59,13 @@ export default function InvestigationWorkbenchView({
   const [feedbackType, setFeedbackType] = useState<'TP' | 'FP' | null>(null);
   const [triageLoading, setTriageLoading] = useState(false);
   const [triageDecisionState, setTriageDecisionState] = useState<TriageDecision | null>(activeAlert.triageDecision || null);
+  const [plainLanguageLoading, setPlainLanguageLoading] = useState(false);
+  const [plainLanguageText, setPlainLanguageText] = useState<string | null>(null);
 
-  // Priority 1/2/3/5: AI Investigation Summary, risk decomposition, playbook actions, and
-  // similar past cases -- all fetched from real backend endpoints (/correlate and
-  // /similar-cases), not generated client-side. See data_provenance in each response for
-  // exactly which parts are real-dataset-derived vs. the labeled Investigation Simulation layer.
+  
+  
+  
+  
   const [correlateData, setCorrelateData] = useState<CorrelateResponse | null>(null);
   const [correlateLoading, setCorrelateLoading] = useState(false);
   const [similarCases, setSimilarCases] = useState<SimilarCasesResponse | null>(null);
@@ -134,15 +142,33 @@ export default function InvestigationWorkbenchView({
     }
   }, [activeAlert.id, activeAlert.confidenceInterval, activeAlert.evasionResistance, activeAlert.hasRealExplainability, activeAlert.pu_probability, activeAlert.riskScore, activeAlert.accountNumber, activeAlert.triageDecision]);
 
-  const sortedAlerts = [...(alerts || [])].sort((a, b) => b.riskScore - a.riskScore);
+  const sourceFilter = dataSource === 'live-target' ? 'target' as const
+    : dataSource === 'live-dataset' ? 'dataset' as const
+    : undefined;
+
+  const { alerts: fetchedSidebarAlerts } = usePaginatedAlerts({
+    source_filter: sourceFilter,
+    page: 1,
+    pageSize: 50,
+    enabled: !alertsProp && isBackendOnline,
+  });
+
+  const sidebarAlerts = useMemo(() => {
+    const base = alertsProp ?? fetchedSidebarAlerts.map(mapApiAlert);
+    if (!alertsProp && activeAlert && !base.some(a => a.id === activeAlert.id)) {
+      return [activeAlert, ...base];
+    }
+    return base;
+  }, [alertsProp, fetchedSidebarAlerts, activeAlert]);
+  const sortedAlerts = [...sidebarAlerts].sort((a, b) => b.riskScore - a.riskScore);
   const effectiveTriageDecision = triageDecisionState || activeAlert.triageDecision;
   const effectiveTriageAction = effectiveTriageDecision?.triage_action || activeAlert.triage_action;
   const effectivePuProb = effectiveTriageDecision?.pu_probability ?? activeAlert.pu_probability;
 
-  // Global SOC Keyboard Ergonomics (J/K/E/C)
+  
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is typing inside an input or textarea
+      
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea') return;
 
@@ -177,6 +203,22 @@ export default function InvestigationWorkbenchView({
     onUpdateStatus(activeAlert.id, status);
   };
 
+  const handleEscalate = () => {
+    onUpdateStatus(activeAlert.id, 'Escalated');
+  };
+
+  const handleGeneratePlainLanguage = async () => {
+    setPlainLanguageLoading(true);
+    try {
+      const res = await fageApi.explainPlainLanguage(activeAlert.id);
+      setPlainLanguageText(res.explanation);
+    } catch (err) {
+      console.error('Failed to generate plain language explanation', err);
+    } finally {
+      setPlainLanguageLoading(false);
+    }
+  };
+
   const handleFeedback = async (isTruePositive: boolean) => {
     setFeedbackStatus('submitting');
     setFeedbackType(isTruePositive ? 'TP' : 'FP');
@@ -208,11 +250,11 @@ export default function InvestigationWorkbenchView({
   };
 
   const formatTimeAgo = (alert: typeof activeAlert) => {
-    // BUG-008 FIX: Use raw ISO dateOpened, NOT localized timestamp string (breaks in Firefox/Safari)
+    
     const raw = alert.dateOpened || alert.timestamp;
     if (!raw || raw === 'Recent' || raw === 'Just now') return raw || 'Recent';
     const parsed = Date.parse(raw);
-    if (isNaN(parsed)) return alert.timestamp; // fallback to display string
+    if (isNaN(parsed)) return alert.timestamp; 
     const ms = Date.now() - parsed;
     const mins = Math.floor(ms / 60000);
     if (mins < 1) return 'Just now';
@@ -222,17 +264,11 @@ export default function InvestigationWorkbenchView({
 
   return (
     <div className="absolute inset-0 flex flex-1 overflow-hidden bg-surface text-on-surface">
-      {/* Left Pane: Alert Queue */}
+      {}
       <section className="w-[380px] flex flex-col border-r border-outline-variant bg-surface-container-lowest shrink-0">
         <div className="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container">
           <h2 className="text-sm font-bold uppercase tracking-wider text-on-surface-variant">Alert Queue</h2>
           <div className="flex gap-2">
-            <button className="p-1 hover:bg-surface-container-highest rounded text-on-surface-variant transition-colors flex items-center justify-center">
-              <Filter size={16} />
-            </button>
-            <button className="p-1 hover:bg-surface-container-highest rounded text-on-surface-variant transition-colors flex items-center justify-center">
-              <ArrowUpDown size={16} />
-            </button>
           </div>
         </div>
         
@@ -279,9 +315,9 @@ export default function InvestigationWorkbenchView({
         </div>
       </section>
 
-      {/* Right Pane: Investigation Detail */}
+      {}
       <section className="flex-1 min-w-0 bg-surface flex flex-col overflow-y-auto custom-scrollbar relative">
-        {/* Detail Header */}
+        {}
         <div className="p-8 border-b border-outline-variant shrink-0">
           <div className="flex justify-between items-start mb-4">
             <div className="flex-1 min-w-0 pr-4">
@@ -316,7 +352,7 @@ export default function InvestigationWorkbenchView({
             </div>
           </div>
           
-          {/* Keyboard Shortcuts Hint */}
+          {}
           <div className="mb-6 flex items-center justify-between px-4 py-2.5 bg-surface-container-low border border-outline-variant rounded-lg text-xs text-on-surface-variant">
             <div className="flex items-center gap-4 font-mono">
               <span><kbd className="px-1.5 py-0.5 bg-surface border border-outline rounded text-[10px] font-bold text-on-surface">J</kbd> / <kbd className="px-1.5 py-0.5 bg-surface border border-outline rounded text-[10px] font-bold text-on-surface">K</kbd> Next/Prev Alert</span>
@@ -326,7 +362,7 @@ export default function InvestigationWorkbenchView({
             <span className="text-[11px] font-bold text-primary tracking-wide">SOC OPERATOR TRIAGE MODE ACTIVE</span>
           </div>
 
-          {/* Confidence-Routed Triage Action Banner */}
+          {}
           {effectiveTriageAction && (
             <div className={`mb-6 p-4 rounded-xl border flex items-center justify-between stitch-glass-card ${
               effectiveTriageAction === 'FAST_TRACK_FREEZE'
@@ -368,7 +404,7 @@ export default function InvestigationWorkbenchView({
             </div>
           )}
 
-          {/* Detail Grid */}
+          {}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 p-6 bg-surface-container rounded-xl">
             <div>
               <p className="text-[10px] text-on-surface-variant uppercase font-bold mb-1 tracking-widest">Transaction Amount</p>
@@ -391,13 +427,19 @@ export default function InvestigationWorkbenchView({
             </div>
           </div>
 
-          {/* Dataset Attributes */}
+          {}
           <div className="mt-6 grid grid-cols-1 gap-6 p-6 bg-surface-container rounded-xl">
             <h3 className="flex items-center gap-2 text-[10px] text-on-surface-variant uppercase font-bold tracking-widest">
               <Layers size={14} className="text-primary" /> Dataset Account Attributes (Raw)
             </h3>
             {featuresLoading ? (
-               <div className="text-xs text-on-surface-variant italic py-2">Loading dataset features...</div>
+               <div className="text-xs text-on-surface-variant italic py-2 flex items-center gap-2">
+                 <div className="relative w-4 h-4 flex items-center justify-center">
+                   <div className="absolute inset-0 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin"></div>
+                   <span className="text-[8px] font-bold text-primary">₹</span>
+                 </div>
+                 Loading dataset features...
+               </div>
             ) : alertFeatures && Object.keys(alertFeatures).length > 0 ? (
                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 max-h-48 overflow-y-auto custom-scrollbar pr-2">
                  {Object.entries(alertFeatures).filter(([_, v]) => v !== null && v !== 0 && v !== '').slice(0, 100).map(([key, value]) => (
@@ -418,13 +460,40 @@ export default function InvestigationWorkbenchView({
             actions, THEN drill into raw evidence if needed. */}
         <div className="px-8 pt-8 shrink-0">
           <div className="bg-surface-container border border-outline-variant rounded-xl p-6 mb-2">
-            <div className="flex items-center gap-2 mb-4">
-              <Brain size={20} className="text-primary" />
-              <h2 className="text-sm font-black uppercase tracking-wider text-on-surface">AI Investigation Summary</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Brain size={20} className="text-primary" />
+                <h2 className="text-sm font-black uppercase tracking-wider text-on-surface">AI Investigation Summary</h2>
+              </div>
+              <button 
+                onClick={handleGeneratePlainLanguage}
+                disabled={plainLanguageLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container-high border border-outline-variant hover:bg-surface-container-highest transition-colors disabled:opacity-50 text-xs font-bold text-on-surface"
+              >
+                {plainLanguageLoading ? (
+                  <div className="relative w-3.5 h-3.5 flex items-center justify-center">
+                    <div className="absolute inset-0 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin"></div>
+                  </div>
+                ) : <Brain size={14} />}
+                Explain in Plain Language
+              </button>
             </div>
+            
+            {plainLanguageText && (
+              <div className="mb-6 p-4 bg-primary/10 border border-primary/20 rounded-lg">
+                <div className="text-[10px] uppercase font-bold text-primary tracking-widest mb-2">Plain Language Explanation</div>
+                <div className="text-sm text-on-surface whitespace-pre-wrap">{plainLanguageText}</div>
+              </div>
+            )}
 
             {correlateLoading && (
-              <div className="text-xs text-on-surface-variant italic py-4">Generating investigation summary...</div>
+              <div className="text-xs text-on-surface-variant italic py-4 flex items-center gap-2">
+                <div className="relative w-5 h-5 flex items-center justify-center">
+                  <div className="absolute inset-0 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-[10px] font-bold text-primary">₹</span>
+                </div>
+                Generating investigation summary...
+              </div>
             )}
 
             {!correlateLoading && !correlateData?.investigation_summary && (
@@ -473,7 +542,7 @@ export default function InvestigationWorkbenchView({
                     </div>
                   </div>
 
-                  {/* Why this account? */}
+                  {}
                   <div>
                     <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-3">
                       <Layers size={14} className="text-primary" /> Why this account?
@@ -489,7 +558,7 @@ export default function InvestigationWorkbenchView({
                     </ul>
                   </div>
 
-                  {/* Recommended actions -- playbook checklist */}
+                  {}
                   <div>
                     <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-3">
                       <ListChecks size={14} className="text-primary" /> Recommended Actions
@@ -514,14 +583,20 @@ export default function InvestigationWorkbenchView({
             })()}
           </div>
 
-          {/* Priority 5: Similar Past Cases -- real cosine similarity, real recorded status */}
+          {}
           <div className="bg-surface-container border border-outline-variant rounded-xl p-6 mb-6">
             <div className="flex items-center gap-2 mb-4">
               <GitCompare size={18} className="text-primary" />
               <h2 className="text-sm font-black uppercase tracking-wider text-on-surface">Similar Past Cases</h2>
             </div>
             {similarCasesLoading && (
-              <div className="text-xs text-on-surface-variant italic py-2">Searching for similar cases...</div>
+              <div className="text-xs text-on-surface-variant italic py-2 flex items-center gap-2">
+                <div className="relative w-4 h-4 flex items-center justify-center">
+                  <div className="absolute inset-0 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-[8px] font-bold text-primary">₹</span>
+                </div>
+                Finding similar cases...
+              </div>
             )}
             {!similarCasesLoading && (!similarCases || similarCases.similar_cases.length === 0) && (
               <div className="text-xs text-on-surface-variant italic py-2">No comparable past cases found yet.</div>
@@ -543,9 +618,9 @@ export default function InvestigationWorkbenchView({
           </div>
         </div>
 
-        {/* Analysis & Content */}
+        {}
         <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8 shrink-0">
-          {/* Left Column */}
+          {}
           <div className="space-y-8">
             <div>
               <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-on-surface mb-4">
@@ -576,7 +651,7 @@ export default function InvestigationWorkbenchView({
             )}
           </div>
           
-          {/* Right Column */}
+          {}
           <div className="space-y-8">
             <div>
               <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-on-surface mb-4">
@@ -649,7 +724,10 @@ export default function InvestigationWorkbenchView({
               </h3>
               {triageLoading ? (
                 <div className="bg-surface-container-low border border-outline-variant border-dashed rounded-lg p-4 text-xs text-on-surface-variant italic flex items-center gap-2">
-                  <Hourglass size={14} className="animate-spin text-primary" />
+                  <div className="relative w-4 h-4 flex items-center justify-center mr-1">
+                    <div className="absolute inset-0 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-[8px] font-bold text-primary">₹</span>
+                  </div>
                   Evaluating multi-dimensional triage policy via /triage-eval...
                 </div>
               ) : effectiveTriageDecision && effectiveTriageDecision.triage_action ? (
@@ -700,7 +778,7 @@ export default function InvestigationWorkbenchView({
               )}
             </div>
 
-            {/* Entity Correlation Graph (Real backend /correlate API) */}
+            {}
             <div className="mt-2">
               <NetworkGraph alertId={activeAlert.id} theme={theme} />
             </div>
@@ -728,12 +806,20 @@ export default function InvestigationWorkbenchView({
                 </div>
               ) : (
                 <div className="bg-surface-container-low border border-outline-variant border-dashed rounded-lg p-6 text-xs text-on-surface-variant italic flex items-center justify-center h-32">
-                  {sarLoading ? 'AI is analyzing evidence and drafting SAR...' : 'No SAR report generated yet.'}
+                  {sarLoading ? (
+                    <div className="flex items-center gap-2">
+                      <div className="relative w-4 h-4 flex items-center justify-center">
+                        <div className="absolute inset-0 border-[1.5px] border-primary border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-[8px] font-bold text-primary">₹</span>
+                      </div>
+                      AI is analyzing evidence and drafting SAR...
+                    </div>
+                  ) : 'No SAR report generated yet.'}
                 </div>
               )}
             </div>
 
-            {/* Closed-Loop PU Active Learning Calibration Feedback */}
+            {}
             <div className="bg-surface-container rounded-xl border border-outline-variant p-4 flex flex-col gap-4">
               <div className="flex items-start md:items-center gap-3 w-full min-w-0">
                 <div className="p-2.5 rounded-lg bg-tertiary/10 text-tertiary shrink-0 mt-1 md:mt-0">
@@ -786,13 +872,21 @@ export default function InvestigationWorkbenchView({
           </div>
         </div>
 
-        {/* Footer Action Bar */}
+        {}
         <div className="mt-auto p-6 border-t border-outline-variant bg-surface-container-low flex justify-end items-center gap-4 sticky bottom-0 z-10 shrink-0">
           <button 
-            className="px-6 py-2 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-high transition-colors text-sm font-bold"
-            onClick={() => handleUpdateStatus('Closed')}
+            className={`px-6 py-2 rounded-lg border transition-colors text-sm font-bold flex items-center gap-2 ${
+              activeAlert.status === 'Closed'
+                ? 'bg-surface-container-highest border-outline-variant text-on-surface-variant cursor-default opacity-70'
+                : 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high'
+            }`}
+            onClick={() => {
+              if (activeAlert.status !== 'Closed') handleUpdateStatus('Closed');
+            }}
+            disabled={activeAlert.status === 'Closed'}
           >
-            Mark Resolved
+            {activeAlert.status === 'Closed' ? <CheckCircle2 size={16} /> : null}
+            {activeAlert.status === 'Closed' ? 'Resolved' : 'Mark Resolved'}
           </button>
           <button 
             className={`px-6 py-2 rounded-lg border transition-colors text-sm font-bold flex items-center gap-2 ${
@@ -806,11 +900,11 @@ export default function InvestigationWorkbenchView({
             disabled={activeAlert.status === 'Investigating'}
           >
             {activeAlert.status === 'Investigating' ? (
-              <Hourglass size={14} className="animate-spin" />
+              <Activity size={14} className="text-primary" />
             ) : (
               <AlertCircle size={14} />
             )}
-            {activeAlert.status === 'Investigating' ? 'Investigating...' : 'Investigate'}
+            {activeAlert.status === 'Investigating' ? 'Investigating' : 'Investigate'}
           </button>
           <button 
             className="px-8 py-2 rounded-lg bg-error text-on-error hover:opacity-90 transition-opacity text-sm font-bold shadow-lg shadow-error/10"

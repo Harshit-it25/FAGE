@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 from typing import Optional
 from sqlalchemy import create_engine, Column, String, Float, Integer, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -12,7 +13,7 @@ if DATABASE_URL.startswith("sqlite"):
         DATABASE_URL, connect_args={"check_same_thread": False}
     )
 else:
-    # PostgreSQL / SQLAlchemy connection pooling for horizontal scalability
+    
     engine = create_engine(
         DATABASE_URL,
         pool_pre_ping=True,
@@ -32,22 +33,22 @@ class AlertModel(Base):
     sender_id = Column(String)
     receiver_id = Column(String)
     amount = Column(Float)
-    risk_score = Column(Integer)
+    risk_score = Column(Float)
     severity = Column(String)
     status = Column(String, index=True)
     reason = Column(Text)
     timestamp = Column(String)
     assigned_to = Column(String)
-    logs = Column(Text)  # Stored as JSON string
-    features = Column(Text) # Stored as JSON string
-    explainability = Column(Text)  # Stored as JSON string: key_risk_drivers, confidence_interval_90, evasion_resistance
+    logs = Column(Text)  
+    features = Column(Text) 
+    explainability = Column(Text)  
     _ts = Column(Float)
     triage_action = Column(String, nullable=True)
     priority_tier = Column(String, nullable=True)
     pu_probability = Column(Float, nullable=True)
-    # Note: FAGE is intentionally single-tenant for the Bank of India prototype.
-    # The tenant_id and org_id columns exist in the schema for future multi-tenant capability,
-    # but no tenant filtering is enforced at the API or database level in this hackathon release.
+    
+    
+    
     tenant_id = Column(String, index=True, default="default")
     org_id = Column(String, index=True, default="FAGE-CORE")
 
@@ -87,13 +88,13 @@ class AuditLogModel(Base):
     actor = Column(String, index=True, nullable=False)
     role = Column(String, nullable=True)
     action = Column(String, nullable=False)
-    entity_type = Column(String, index=True, nullable=False)  # alert | auth | system
+    entity_type = Column(String, index=True, nullable=False)  
     entity_id = Column(String, index=True, nullable=True)
     detail = Column(Text, nullable=True)
     auth_method = Column(String, nullable=True)
-    # Note: FAGE is intentionally single-tenant for the Bank of India prototype.
-    # The tenant_id and org_id columns exist in the schema for future multi-tenant capability,
-    # but no tenant filtering is enforced at the API or database level in this hackathon release.
+    
+    
+    
     tenant_id = Column(String, index=True, default="default")
     org_id = Column(String, index=True, default="FAGE-CORE")
 
@@ -125,6 +126,7 @@ def write_audit(
     auth_method: Optional[str] = None,
     tenant_id: str = "default",
     org_id: str = "FAGE-CORE",
+    commit: bool = False,
 ):
     entry = AuditLogModel(
         timestamp=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -139,6 +141,8 @@ def write_audit(
         org_id=org_id,
     )
     db.add(entry)
+    if commit:
+        db.commit()
     return entry
 
 
@@ -161,9 +165,12 @@ def ensure_schema_columns(engine_instance):
                 if "org_id" not in existing_cols:
                     conn.execute(text("ALTER TABLE alerts ADD COLUMN org_id VARCHAR DEFAULT 'FAGE-CORE'"))
                 conn.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger("FAGE.DB").error(
+                    "Schema migration failed for 'alerts' table. Missing columns may cause runtime errors: %s", e
+                )
 
+        with engine_instance.connect() as conn:
             try:
                 result = conn.execute(text("PRAGMA table_info(audit_logs)"))
                 audit_cols = {row[1] for row in result.fetchall()}
@@ -172,11 +179,10 @@ def ensure_schema_columns(engine_instance):
                 if "org_id" not in audit_cols:
                     conn.execute(text("ALTER TABLE audit_logs ADD COLUMN org_id VARCHAR DEFAULT 'FAGE-CORE'"))
                 conn.commit()
-            except Exception:
-                pass
-
-Base.metadata.create_all(bind=engine)
-ensure_schema_columns(engine)
+            except Exception as e:
+                logging.getLogger("FAGE.DB").error(
+                    "Schema migration failed for 'audit_logs' table. Missing columns may cause runtime errors: %s", e
+                )
 
 
 def get_db():

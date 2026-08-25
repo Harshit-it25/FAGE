@@ -13,12 +13,13 @@ import RiskExplorerView from './components/RiskExplorerView';
 import AlertsQueueView from './components/AlertsQueueView';
 import LoginView from './components/LoginView';
 import AdminAuditView from './components/AdminAuditView';
+import DifferentialPrivacyControls from './components/DifferentialPrivacyControls';
 
-import { useAlerts, useUpdateAlert } from './hooks/useFageApi';
-import { mapApiAlert, filterAlertsBySource } from './utils/mapAlert';
+import { useDashboardSummary, useUpdateAlert, useAlertById, useAlerts } from './hooks/useFageApi';
+import { mapApiAlert } from './utils/mapAlert';
 import { useAuth } from './context/AuthContext';
 
-const VIEW_PATHS = ['dashboard', 'investigation', 'explorer', 'alerts', 'admin'] as const;
+const VIEW_PATHS = ['dashboard', 'investigation', 'explorer', 'alerts', 'admin', 'dp-ledger'] as const;
 type ViewPath = (typeof VIEW_PATHS)[number];
 
 function pathToView(pathname: string): ViewPath {
@@ -80,16 +81,37 @@ function WorkbenchShell() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [optimisticStatus, setOptimisticStatus] = useState<Record<string, Alert['status']>>({});
   const [showHelp, setShowHelp] = useState(false);
-
-  const { alerts: apiAlerts, error: apiError, loading: alertsLoading, isReachable, refetch: refetchAlerts } = useAlerts();
-  const { updateAlert } = useUpdateAlert();
+  const [alertsRefreshKey, setAlertsRefreshKey] = useState(0);
+  const [searchDebounce, setSearchDebounce] = useState('');
 
   const [dataSource, setDataSource] = useState<DataSourceType>('live-all');
   const [hasSetDefault, setHasSetDefault] = useState(false);
 
   const currentView = pathToView(location.pathname);
   const activeAlertId = routeAlertId || '';
-  const isBackendOnline = isReachable && !apiError;
+
+  const { data: dashboardData, error: apiError, loading: dashboardLoading, refetch: refetchDashboard } = useDashboardSummary();
+  const { updateAlert } = useUpdateAlert();
+  const { alert: fetchedAlert, loading: alertLoading, refetch: refetchActiveAlert } = useAlertById(activeAlertId || undefined);
+
+  const isBackendOnline = !apiError && dashboardData !== null;
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchDebounce(globalSearch.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [globalSearch]);
+
+  const { alerts: searchApiAlerts } = useAlerts({
+    search: searchDebounce || undefined,
+    limit: 8,
+    enabled: isBackendOnline && searchDebounce.length > 0,
+  });
+
+  const bumpAlertsRefresh = useCallback(() => {
+    setAlertsRefreshKey(k => k + 1);
+    refetchDashboard(false);
+    if (activeAlertId) refetchActiveAlert();
+  }, [refetchDashboard, refetchActiveAlert, activeAlertId]);
 
   useEffect(() => {
     localStorage.setItem('fage_theme', theme);
@@ -115,27 +137,19 @@ function WorkbenchShell() {
     [navigate, activeAlertId]
   );
 
-  const processedAlerts = useMemo(() => {
-    const isLiveSource = dataSource === 'live-all' || dataSource === 'live-target' || dataSource === 'live-dataset';
-    if (!isLiveSource || !isBackendOnline || !apiAlerts) return [];
-    const mapped = apiAlerts.map(mapApiAlert).map(a => ({
-      ...a,
-      status: optimisticStatus[a.id] ?? a.status,
-    }));
-    return filterAlertsBySource(mapped, dataSource);
-  }, [apiAlerts, dataSource, isBackendOnline, optimisticStatus]);
+  const activeAlert = useMemo(() => {
+    if (!fetchedAlert) return undefined;
+    const mapped = mapApiAlert(fetchedAlert);
+    return {
+      ...mapped,
+      status: optimisticStatus[mapped.id] ?? mapped.status,
+    };
+  }, [fetchedAlert, optimisticStatus]);
 
   const searchResults = useMemo(() => {
-    const q = globalSearch.trim().toLowerCase();
-    if (!q) return [];
-    return processedAlerts.filter(
-      a =>
-        a.id.toLowerCase().includes(q) ||
-        a.accountNumber.toLowerCase().includes(q) ||
-        a.receiverAccountId.toLowerCase().includes(q) ||
-        a.type.toLowerCase().includes(q)
-    );
-  }, [globalSearch, processedAlerts]);
+    if (!searchDebounce) return [];
+    return searchApiAlerts.map(mapApiAlert);
+  }, [searchApiAlerts, searchDebounce]);
 
   const handleSelectAlert = useCallback(
     (id: string) => {
@@ -149,7 +163,7 @@ function WorkbenchShell() {
     setOptimisticStatus(prev => ({ ...prev, [id]: status }));
     try {
       await updateAlert(id, { status, operator_name: user?.display_name });
-      await refetchAlerts();
+      bumpAlertsRefresh();
       setOptimisticStatus(prev => {
         const next = { ...prev };
         delete next[id];
@@ -167,13 +181,11 @@ function WorkbenchShell() {
 
   const handleUpdateAssignment = async (id: string, assignee: string) => {
     try {
-      const activeStatus = processedAlerts.find(a => a.id === id)?.status || 'Open';
       await updateAlert(id, {
-        status: activeStatus,
         assigned_to: assignee,
         operator_name: user?.display_name,
       });
-      await refetchAlerts();
+      bumpAlertsRefresh();
     } catch (err) {
       console.error('Failed to sync assignment update with FastAPI:', err);
     }
@@ -185,11 +197,25 @@ function WorkbenchShell() {
     setOptimisticStatus(prev => ({ ...prev, ...newOptimistic }));
     
     try {
-      await Promise.all(ids.map(id => updateAlert(id, { status, operator_name: user?.display_name })));
-      await refetchAlerts();
+      const results = await Promise.allSettled(
+        ids.map(id => updateAlert(id, { status, operator_name: user?.display_name }))
+      );
+      const failedIds = new Set(
+        ids.filter((_, i) => results[i].status === 'rejected')
+      );
+      if (failedIds.size > 0) {
+        console.error(`Bulk status update: ${failedIds.size} of ${ids.length} failed.`);
+      }
+      bumpAlertsRefresh();
+      
+      setOptimisticStatus(prev => {
+        const next = { ...prev };
+        ids.forEach(id => delete next[id]);
+        return next;
+      });
     } catch (err) {
       console.error('Failed to sync bulk update:', err);
-    } finally {
+      
       setOptimisticStatus(prev => {
         const next = { ...prev };
         ids.forEach(id => delete next[id]);
@@ -202,28 +228,24 @@ function WorkbenchShell() {
     const freshNote: AnalystNote = {
       id: `AN-${Date.now()}`,
       author: user?.display_name || 'Operator',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' UTC',
+      timestamp: new Date().toISOString(),
       content: noteText,
       isSystem: false,
     };
     setLocalNotes(prevNotes => ({ ...prevNotes, [id]: [...(prevNotes[id] || []), freshNote] }));
     try {
-      const activeStatus = processedAlerts.find(a => a.id === id)?.status || 'Open';
       await updateAlert(id, {
-        status: activeStatus,
         notes: noteText,
         operator_name: user?.display_name,
       });
-      await refetchAlerts();
+      bumpAlertsRefresh();
     } catch (err) {
       console.error('Failed to append analyst note in FastAPI:', err);
     }
   };
 
   const handleNewInvestigation = () => {
-    const nextOpen = processedAlerts.find(a => a.status === 'Open') ?? processedAlerts[0];
-    if (nextOpen) navigate(`/investigation/${encodeURIComponent(nextOpen.id)}`);
-    else navigate('/investigation');
+    navigate('/alerts');
   };
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -231,29 +253,36 @@ function WorkbenchShell() {
     if (e.key === 'Escape') setGlobalSearch('');
   };
 
-  const activeAlert = activeAlertId ? processedAlerts.find(a => a.id === activeAlertId) : undefined;
-  const openAlertsCount = processedAlerts.filter(a => a.status === 'Open').length;
+  const openAlertsCount = dashboardData?.incident_status_matrix?.Open ?? 0;
+  const totalAlertsCount = dashboardData?.total_incidents_recorded ?? 0;
 
   const renderView = () => {
     switch (currentView) {
       case 'dashboard':
         return (
           <DashboardView
-            alerts={processedAlerts}
             onSelectAlert={handleSelectAlert}
             theme={theme}
-            onRefreshAlerts={refetchAlerts}
+            onRefreshAlerts={bumpAlertsRefresh}
             dataSource={dataSource}
             setDataSource={setDataSource}
             isBackendOnline={isBackendOnline}
-            alertsLoading={alertsLoading}
-            apiAlertsCount={apiAlerts?.length ?? 0}
-            apiTargetCount={apiAlerts?.filter(a => mapApiAlert(a).type === 'Mule Account').length ?? 0}
-            apiDatasetCount={apiAlerts?.filter(a => a.id.startsWith('ALT-DS-')).length ?? 0}
+            alertsLoading={dashboardLoading}
+            apiAlertsCount={totalAlertsCount}
+            apiTargetCount={dashboardData?.mule_alert_count ?? 0}
+            apiDatasetCount={dashboardData?.dataset_alert_count ?? 0}
             apiError={apiError}
+            telemetry={dashboardData}
           />
         );
       case 'investigation':
+        if (alertLoading && activeAlertId) {
+          return (
+            <div className="flex-1 flex flex-col items-center justify-center text-on-surface-variant gap-4 p-8">
+              <p className="text-sm">Loading alert details...</p>
+            </div>
+          );
+        }
         if (!activeAlert) {
           return (
             <div className="flex-1 flex flex-col items-center justify-center text-on-surface-variant gap-4 p-8">
@@ -281,45 +310,56 @@ function WorkbenchShell() {
             onUpdateStatus={handleUpdateStatus}
             onUpdateAssignment={handleUpdateAssignment}
             theme={theme}
-            alerts={processedAlerts}
+            dataSource={dataSource}
+            isBackendOnline={isBackendOnline}
             onSelectAlert={handleSelectAlert}
           />
         );
       case 'explorer':
-        return <RiskExplorerView alerts={processedAlerts} onSelectAlert={handleSelectAlert} theme={theme} />;
-
+        return (
+          <RiskExplorerView
+            onSelectAlert={handleSelectAlert}
+            theme={theme}
+            dataSource={dataSource}
+            isBackendOnline={isBackendOnline}
+          />
+        );
 
       case 'alerts':
         return (
           <AlertsQueueView
-            alerts={processedAlerts}
             onSelectAlert={handleSelectAlert}
             onUpdateStatus={handleUpdateStatus}
             onUpdateAssignment={handleUpdateAssignment}
             onBulkStatus={handleBulkStatus}
             theme={theme}
             currentUserName={user?.display_name || user?.username || 'Operator'}
+            dataSource={dataSource}
+            isBackendOnline={isBackendOnline}
+            refreshKey={alertsRefreshKey}
           />
         );
       case 'admin':
         return <AdminAuditView theme={theme} />;
+      case 'dp-ledger':
+        return <DifferentialPrivacyControls theme={theme} />;
     }
   };
 
   return (
     <div data-theme={theme} className="bg-background text-on-surface font-body overflow-hidden h-screen flex w-full">
       <Sidebar
-        currentView={currentView as any}
-        setView={setView as any}
+        currentView={currentView}
+        setView={setView}
         theme={theme}
         toggleTheme={() => setTheme(theme === 'analytics' ? 'sovereign' : 'analytics')}
         openAlertsCount={openAlertsCount}
         dataSource={dataSource}
         setDataSource={setDataSource}
         isBackendOnline={isBackendOnline}
-        apiAlertsCount={apiAlerts?.length ?? 0}
-        apiTargetCount={apiAlerts?.filter(a => a.id.startsWith('ALT-TGT-') || (a.risk_score !== undefined && a.risk_score >= 50)).length ?? 0}
-        apiDatasetCount={apiAlerts?.filter(a => a.id.startsWith('ALT-DS-')).length ?? 0}
+        apiAlertsCount={totalAlertsCount}
+        apiTargetCount={dashboardData?.mule_alert_count ?? 0}
+        apiDatasetCount={dashboardData?.dataset_alert_count ?? 0}
         onNewInvestigation={handleNewInvestigation}
         onLogout={logout}
         onAdmin={() => navigate('/admin')}

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 
-# Set up logging for FAGE Machine Learning Pipeline
+
 logger = logging.getLogger("FAGE.ML.Preprocessing")
 if not logger.handlers:
     handler = logging.StreamHandler(sys.stdout)
@@ -57,23 +57,23 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
         self.imputation_strategy_categorical = imputation_strategy_categorical
         self.protected_features = set(protected_features or [])
 
-        # Fitted parameters (State Tracker for Production serving)
+        
         self.input_columns_: List[str] = []
         self.output_columns_: List[str] = []
         self.numeric_features_: List[str] = []
         self.categorical_features_: List[str] = []
-        # Non-numeric columns that parse as real dates (e.g. account-open-date strings) get
-        # converted to a numeric "days since reference" feature instead of an arbitrary
-        # (and chronologically meaningless) string category code.
+        
+        
+        
         self.date_features_: List[str] = []
         self.date_reference_: Dict[str, Dict[str, float]] = {}
         
-        # Drop logs for governance audit trails
+        
         self.dropped_missing_cols_: List[str] = []
         self.dropped_low_variance_cols_: List[str] = []
         self.dropped_leakage_cols_: List[str] = []
         
-        # Imputation states
+        
         self.impute_values_: Dict[str, Any] = {}
         self.is_fitted_ = False
 
@@ -133,15 +133,34 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
             "deterministic_separators": []
         }
 
-        # 0. HARDCODED SEMANTIC LEAKAGE
-        # Identified via Data Dictionary Analysis (Phase 5)
+        
+        
+        # FIXED (audit finding, see FAGE_bug_audit_and_retrain.md #1):
+        # This list previously included F3887 and F3894, which are organizer-MANDATED seed
+        # features (HIGHLIGHTED_FEATURES in train_models.py). They were being force-dropped as
+        # "leaks" purely because their column numbers fell in this numeric range, with NO
+        # correlation check behind it. Verified against the actual dataset:
+        #   F3887: corr=+0.004, univariate AUROC=0.524 -> noise, not a leak
+        #   F3894: corr=-0.008, univariate AUROC=0.553 -> noise, not a leak
+        # F3898 (MIN_RESOLVE_DAYS) was also previously in this list. The competitor's own
+        # published leak audit explicitly RETAINED it after finding an ablation showed -27pp
+        # precision if removed, and it is the #1 SHAP driver in their model. Dropping it here
+        # unconditionally silently threw away a genuinely predictive, non-leaky feature.
+        # Only the columns independently confirmed as post-event resolution/alert-outcome flags
+        # remain in this list (F3908, F3912-F3914 confirmed via correlation/AUROC scan; the
+        # F3899-F3907/F3909-F3911/F3915/F3919-F3923 block is the surrounding alert/resolution
+        # metadata family these belong to and was not individually re-verified here -- if you
+        # add any of them back, re-run the correlation/AUROC check in retrain_fixed.py first).
         semantic_leakage_features = [
-            'F3887', 'F3894', 'F3898', 'F3899', 'F3900', 'F3901', 'F3902', 'F3903', 
-            'F3904', 'F3905', 'F3906', 'F3907', 'F3908', 'F3909', 'F3910', 'F3911', 
+            'F3899', 'F3900', 'F3901', 'F3902', 'F3903',
+            'F3904', 'F3905', 'F3906', 'F3907', 'F3908', 'F3909', 'F3910', 'F3911',
             'F3912', 'F3913', 'F3914', 'F3915', 'F3919', 'F3920', 'F3921', 'F3922', 'F3923'
         ]
         
         found_semantic = [f for f in semantic_leakage_features if f in df.columns]
+        # Protected features (organizer-mandated seed columns) are never force-dropped by this
+        # rule, even if a future edit re-adds their column number to the range above.
+        found_semantic = [f for f in found_semantic if f not in self.protected_features]
         if found_semantic:
             logger.warning(f"Found {len(found_semantic)} confirmed semantic leakage features. Force dropping.")
             leakage_cols.extend(found_semantic)
@@ -153,14 +172,14 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
 
         y = df[target_col].copy()
         
-        # 1. Check for exact duplicate target column or name variations
+        
         normalized_target = target_col.lower().strip()
         for col in df.columns:
             if col == target_col:
                 continue
                 
             col_lower = col.lower().strip()
-            # Flag if the column name looks suspiciously like derivative metadata of the target
+            
             if (normalized_target in col_lower and 
                 any(suffix in col_lower for suffix in ["leak", "target", "label", "derived", "output", "y"])):
                 leakage_cols.append(col)
@@ -169,14 +188,14 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
                     "reason": f"Name similarity indicating target derivation: '{col}' contains '{target_col}'"
                 })
 
-        # 2. Check for extreme correlations
-        # We process numeric columns for correlation limit checks
+        
+        
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         if target_col in numeric_cols:
-            # Drop target from numeric list to avoid self-correlation
+            
             corr_numeric = [c for c in numeric_cols if c != target_col]
             
-            # Compute correlation with target
+            
             corr_scores = df[corr_numeric].corrwith(y).abs()
             high_corr_features = corr_scores[corr_scores >= self.max_leakage_correlation].index.tolist()
             
@@ -189,14 +208,14 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
                     "reason": f"Absolute correlation score of {corr_scores[col]:.5f} is >= threshold {self.max_leakage_correlation}"
                 })
 
-        # 3. Check for deterministic categorical separators (e.g., status flags generated post-facto)
+        
         categorical_cols = df.select_dtypes(exclude=[np.number]).columns.tolist()
         categorical_cols = [c for c in categorical_cols if c != target_col]
         
         for col in categorical_cols:
-            # If for each category value, target is perfectly deterministic:
+            
             crosstab = pd.crosstab(df[col], y)
-            # If all rows of the crosstab have only 1 non-zero value, it means the column perfectly partitions the target
+            
             if crosstab.apply(lambda row: (row > 0).sum() <= 1, axis=1).all() and len(crosstab) > 1:
                 if col not in leakage_cols:
                     leakage_cols.append(col)
@@ -223,21 +242,21 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
         logger.info(f"Fitting preprocessor on dataset of shape {X.shape}")
         self.input_columns_ = X.columns.tolist()
         
-        # Reset fitted states
+        
         self.dropped_missing_cols_ = []
         self.dropped_low_variance_cols_ = []
         self.dropped_leakage_cols_ = []
         self.impute_values_ = {}
 
-        # 1. Deep Missing Value Analysis
+        
         missing_summary = self.analyze_missing_values(X)
         self.dropped_missing_cols_ = missing_summary[
             missing_summary["missing_percentage"] > self.missing_threshold
         ]["column"].tolist()
 
-        # Never drop organizer-mandated features on missingness alone — they get median/mode
-        # imputed like everything else instead. (Previously these were silently dropped here,
-        # before the later "force include" step ever ran, so it never actually saved them.)
+        
+        
+        
         rescued_missing = [c for c in self.dropped_missing_cols_ if c in self.protected_features]
         if rescued_missing:
             logger.info(f"Protected features exempted from missingness filter: {rescued_missing}")
@@ -246,35 +265,35 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
         if self.dropped_missing_cols_:
             logger.info(f"Filtering {len(self.dropped_missing_cols_)} columns with excessive missingness (> {self.missing_threshold:.0%})")
 
-        # Column set remaining after missingness filtering
+        
         active_cols = [c for c in self.input_columns_ if c not in self.dropped_missing_cols_]
         
-        # 2. Target Leakage Validation (if target Series is supplied)
+        
         target_name = y.name if (y is not None and y.name) else "F3924"
         if y is not None:
-            # Reconstruct unified subframe to inspect targets safely
+            
             sub_df = X[active_cols].copy()
             sub_df[target_name] = y
             self.dropped_leakage_cols_, _ = self.validate_and_filter_leakage(sub_df, target_col=target_name)
             
-            # Exclude the target name if it was somehow appended
+            
             self.dropped_leakage_cols_ = [c for c in self.dropped_leakage_cols_ if c != target_name]
             active_cols = [c for c in active_cols if c not in self.dropped_leakage_cols_]
 
-        # 3. Variance Threshold Selection
-        # Separate numeric columns among current active columns
+        
+        
         numeric_active = X[active_cols].select_dtypes(include=[np.number]).columns.tolist()
         categorical_active = X[active_cols].select_dtypes(exclude=[np.number]).columns.tolist()
 
         for col in numeric_active:
-            # Use a scale-normalized variance rather than raw variance, so the threshold means
-            # the same thing across columns of wildly different units (ratios in [0,1] vs raw
-            # amounts in the thousands). Normalize by the 5th-95th percentile range rather than
-            # true min/max: true min-max is badly outlier-sensitive on this data — a handful of
-            # extreme values stretches the range enough that genuinely high-signal columns
-            # (e.g. AUC > 0.8 against the target on their own) get compressed into a sliver near
-            # zero and wrongly flagged as "low variance". Percentile-based range is robust to
-            # that while still catching columns that are genuinely near-constant.
+            
+            
+            
+            
+            
+            
+            
+            
             p05, p95 = X[col].quantile(0.05), X[col].quantile(0.95)
             col_range = p95 - p05
             if col_range == 0 or pd.isna(col_range):
@@ -285,12 +304,12 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
             if pd.isna(normalized_var) or normalized_var <= self.variance_threshold:
                 self.dropped_low_variance_cols_.append(col)
                 
-        # Drop constant categoricals (1 unique category value)
+        
         for col in categorical_active:
             if X[col].nunique(dropna=True) <= 1:
                 self.dropped_low_variance_cols_.append(col)
 
-        # Never drop organizer-mandated features on variance alone.
+        
         rescued_variance = [c for c in self.dropped_low_variance_cols_ if c in self.protected_features]
         if rescued_variance:
             logger.info(f"Protected features exempted from variance filter: {rescued_variance}")
@@ -299,18 +318,18 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
         if self.dropped_low_variance_cols_:
             logger.info(f"Filtering {len(self.dropped_low_variance_cols_)} low-variance/constant columns (<= {self.variance_threshold})")
 
-        # Refine final active columns list
+        
         self.output_columns_ = [
             c for c in active_cols if c not in self.dropped_low_variance_cols_
         ]
 
-        # 4. Detect date-valued columns among the survivors before they get treated as
-        # generic categoricals. A column of strings like "8-10-2011" parses cleanly as a
-        # real date but, encoded as a string category, gets sorted and coded *alphabetically*
-        # ("8-1-2011" < "8-10-2011" < "8-2-2011"...) which destroys the actual chronological
-        # ordering. That throws away real signal (e.g. account age/tenure is a classic mule-
-        # account indicator) and replaces it with noise. Detected date columns are instead
-        # converted to a numeric "days since reference" feature in transform().
+        
+        
+        
+        
+        
+        
+        
         candidate_cols = X[self.output_columns_].select_dtypes(exclude=[np.number]).columns.tolist()
         self.date_features_ = []
         self.date_reference_ = {}
@@ -318,27 +337,27 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
             non_null = X[col].notna()
             if non_null.sum() == 0:
                 continue
-            # A genuine per-record date (e.g. account-open date) has high cardinality.
-            # A low-cardinality string that happens to parse as a date (e.g. a 4-value
-            # snapshot/reporting-month tag like "Oct25"/"Nov25") is a coarse categorical,
-            # not a real per-record timestamp — don't convert it, or you throw away its
-            # actual identity as a handful of meaningful buckets for a mostly-arbitrary
-            # ordinal (and a naive date parser can badly misread short strings like this:
-            # "Sep25" can parse as day=25, year=2025, month defaulting to January).
+            
+            
+            
+            
+            
+            
+            
             if X[col].nunique(dropna=True) < 20:
                 continue
             parsed = pd.to_datetime(X[col], errors="coerce", format="mixed")
             parse_rate = parsed[non_null].notna().mean()
             if parse_rate < 0.95:
-                continue  # not actually a date column, leave it as categorical
+                continue  
 
             ordinal = parsed.dropna().map(lambda d: d.toordinal())
             if len(ordinal) < 5:
                 continue
 
-            # Sentinel/placeholder dates (e.g. a "1900-01-03" null-placeholder) sit way outside
-            # the real distribution. Treat anything below Q1 - 3*IQR as a sentinel, not a real
-            # date, and impute it like a missing value instead of trusting it.
+            
+            
+            
             q1, q3 = ordinal.quantile(0.25), ordinal.quantile(0.75)
             iqr = q3 - q1
             lower_bound = (q1 - 3 * iqr) if iqr > 0 else ordinal.min()
@@ -359,9 +378,9 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
         if self.date_features_:
             logger.info(f"Detected {len(self.date_features_)} date-valued column(s), converting to numeric recency features instead of string categories: {self.date_features_}")
 
-        # 5. Fitted Imputation Map Preparation
-        # Restrict modeling targets specifically to output columns (date columns are handled
-        # separately and excluded from both the numeric and categorical buckets here).
+        
+        
+        
         self.numeric_features_ = [
             c for c in X[self.output_columns_].select_dtypes(include=[np.number]).columns.tolist()
             if c not in self.date_features_
@@ -371,18 +390,18 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
             if c not in self.date_features_
         ]
 
-        # Compute imputation values for numerics
+        
         for col in self.numeric_features_:
             if self.imputation_strategy_numeric == "median":
                 self.impute_values_[col] = X[col].median(skipna=True)
             else:
                 self.impute_values_[col] = X[col].mean(skipna=True)
             
-            # Fallback if whole column is null (which shouldn't happen after missingness filter)
+            
             if pd.isna(self.impute_values_[col]):
                 self.impute_values_[col] = 0.0
 
-        # Compute imputation values for categoricals
+        
         for col in self.categorical_features_:
             if self.imputation_strategy_categorical == "most_frequent":
                 mode_series = X[col].mode(dropna=True)
@@ -390,9 +409,9 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
             else:
                 self.impute_values_[col] = "UNKNOWN"
 
-        # Fit integer category maps so categorical columns become model-ready numerics
-        # instead of raw strings (raw strings crash XGBoost/LightGBM/sklearn downstream).
-        # Unseen categories at inference time map to -1.
+        
+        
+        
         self.category_maps_: Dict[str, Dict[str, int]] = {}
         for col in self.categorical_features_:
             series = X[col].astype(str).replace({"nan": np.nan, "None": np.nan})
@@ -426,7 +445,7 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
             
         logger.info(f"Transforming dataset of shape {X.shape}")
         
-        # Verify alignment with expected columns or warning if inference data contains differences
+        
         missing_input_cols = set(self.output_columns_) - set(X.columns)
         if missing_input_cols:
             logger.warning(
@@ -434,37 +453,37 @@ class FAGEPreprocessor(BaseEstimator, TransformerMixin):
                 f"by preprocessor. Appending missing columns with default/imputed states."
             )
             
-        # Extract remaining columns into a dictionary to avoid DataFrame fragmentation
+        
         cols_dict = {}
         
         for col in self.output_columns_:
             if col in X.columns:
                 series = X[col].copy()
             else:
-                # Fill missing schema columns using static precomputed defaults
+                
                 series = pd.Series(np.nan, index=X.index, name=col)
 
-            # Apply Imputers
+            
             val_to_fill = self.impute_values_.get(col, 0.0 if col in self.numeric_features_ else "UNKNOWN")
             
-            # Cast categorical columns to string explicitly during fill to avoid object/str mismatches
+            
             if col in self.categorical_features_:
                 series = series.astype(str).replace({"nan": np.nan, "None": np.nan})
                 
             cols_dict[col] = series.fillna(val_to_fill)
 
-        # Enforce exact type safety conversions inside dict before DataFrame construction
+        
         for col in self.numeric_features_:
             if col in cols_dict:
                 cols_dict[col] = pd.to_numeric(cols_dict[col], errors="coerce").fillna(self.impute_values_[col])
 
-        # Encode categoricals to integer codes using the maps learned at fit time.
+        
         for col in self.categorical_features_:
             if col in cols_dict:
                 mapping = self.category_maps_.get(col, {})
                 cols_dict[col] = cols_dict[col].map(mapping).fillna(-1).astype(int)
 
-        # Convert detected date columns into a numeric "days since reference" feature
+        
         for col in self.date_features_:
             if col in cols_dict:
                 ref = self.date_reference_[col]

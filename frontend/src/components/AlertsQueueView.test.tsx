@@ -12,6 +12,7 @@ const mockAlerts: Alert[] = [
     receiverAccountId: 'ACC-RECEIVER',
     type: 'Suspicious Transfer',
     riskScore: 90,
+    alertSeverity: 'High',
     confidence: 'High',
     confidenceVal: 95,
     status: 'Open',
@@ -62,13 +63,9 @@ describe('AlertsQueueView', () => {
       />
     );
 
-    // Alert ID should be in the document
     expect(screen.getByText('ALT-123')).toBeInTheDocument();
-    // Account Number should be in the document
     expect(screen.getByText('ACC-RECEIVER')).toBeInTheDocument();
-    // Risk score should be in the document
     expect(screen.getByText('90')).toBeInTheDocument();
-    // Status should be in the document (there may be multiple "Open" texts, e.g. tabs)
     expect(screen.getAllByText('Open').length).toBeGreaterThan(0);
   });
 
@@ -83,10 +80,9 @@ describe('AlertsQueueView', () => {
       />
     );
 
-    // Find the Escalate button. It's an icon button with title="Escalate"
     const escalateBtn = screen.getByTitle('Escalate');
-    
-    await act(async () => {
+
+        await act(async () => {
       await user.click(escalateBtn);
     });
 
@@ -104,10 +100,9 @@ describe('AlertsQueueView', () => {
       />
     );
 
-    // Find the Review button
     const reviewBtn = screen.getByRole('button', { name: /Review/i });
-    
-    await act(async () => {
+
+        await act(async () => {
       await user.click(reviewBtn);
     });
 

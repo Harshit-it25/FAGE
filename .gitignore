@@ -1,29 +1,75 @@
-# Environment and Dependencies
-node_modules/
-venv/
-__pycache__/
-*.pyc
+# ----------------------------------------------------------------------------
+# BRUTAL .gitignore - Lock down everything that shouldn't leak to a judge
+# ----------------------------------------------------------------------------
 
-# Data and Databases
-DataSet.csv
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-*.log
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Env variables
+# 1. Credentials & Environments (NEVER COMMIT)
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+*.pem
+*.key
+*.cert
+credentials.json
+secrets/
+# explicitly allow example envs
+!.env.example
+
+# 2. Dependencies & Build Artifacts
+node_modules/
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+frontend/dist/
+frontend/build/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# 3. IDE, Editor & Tooling (Don't leak local setups)
+.idea/
+.vscode/
+.cursor/
+.cursorrules
+.windsurfrules
+.jetro/
+.mcp.json
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
 .dbeaver/
 .project
+
+# 4. Data & Archives (Don't bloat the repo or leak raw data)
+*.zip
+*.tar.gz
+*.rar
+DataSet.csv
+# Note: Description.xlsx is kept if needed for reference, but raw data is banned
+
+# 5. Testing & Caching
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# 6. Databases
+*.sqlite3
 *.db
+# Explicitly keep the demo alerts DB so the frontend works immediately for judges
 !backend/fage_alerts.db
+
+# 7. Model Artifacts
+# (Models are intentionally NOT ignored here so judges can run the repo instantly 
+# without needing to retrain, but you could ignore *.joblib / *.pkl if using LFS).

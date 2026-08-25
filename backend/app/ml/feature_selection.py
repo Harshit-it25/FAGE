@@ -10,7 +10,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.base import BaseEstimator
 
-# Set up logging for FAGE Machine Learning Pipeline
+
 logger = logging.getLogger("FAGE.ML.FeatureSelection")
 if not logger.handlers:
     handler = logging.StreamHandler(sys.stdout)
@@ -49,12 +49,12 @@ class FAGEFeatureSelector:
         self.rfecv_cv_folds = rfecv_cv_folds
         self.random_state = random_state
 
-        # Fitted parameters and selected sets
+        
         self.is_fitted_ = False
         self.selected_features_: List[str] = []
         self.collinear_dropped_features_: List[str] = []
         
-        # Raw analysis rankings for UI dashboard telemetry
+        
         self.correlation_matrix_: Optional[pd.DataFrame] = None
         self.mutual_info_scores_: Dict[str, float] = {}
         self.rfecv_ranking_: Dict[str, int] = {}
@@ -85,20 +85,20 @@ class FAGEFeatureSelector:
             logger.info(f"Skipping collinearity filtering. {len(numeric_cols)} features is too high for O(n^2) matrix operations.")
             return X, []
 
-        # Compute absolute correlation matrix
+        
         corr_matrix = X[numeric_cols].corr().abs()
         self.correlation_matrix_ = corr_matrix
 
-        # Find upper triangle values exceeding correlation_threshold
+        
         upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
         
         to_drop = []
         for col in upper_tri.columns:
-            # Check if any correlation exceeds threshold
+            
             high_corr_indices = upper_tri.index[upper_tri[col] > self.correlation_threshold].tolist()
             if high_corr_indices:
-                # If there's collinearity, discard the current feature
-                # (Alternative: check which of the two has a higher overall mean correlation to other features)
+                
+                
                 to_drop.append(col)
 
         to_drop = list(set(to_drop))
@@ -126,11 +126,11 @@ class FAGEFeatureSelector:
             logger.warning("No numeric columns available to calculate Mutual Information scores.")
             return {}
 
-        # Prepare X values (no NaN values expected as preprocessing precedes feature selection)
+        
         X_num = X[numeric_cols].values
         y_val = y.values
 
-        # Run mutual info classif
+        
         mi_scores = mutual_info_classif(
             X_num, y_val, 
             discrete_features='auto', 
@@ -140,7 +140,7 @@ class FAGEFeatureSelector:
         )
 
         scores_dict = {col: float(score) for col, score in zip(numeric_cols, mi_scores)}
-        # Sort values
+        
         self.mutual_info_scores_ = dict(sorted(scores_dict.items(), key=lambda item: item[1], reverse=True))
         logger.info(f"Mutual Information calculated. Top feature: {list(self.mutual_info_scores_.keys())[0]} with score {list(self.mutual_info_scores_.values())[0]:.4f}")
         return self.mutual_info_scores_
@@ -164,21 +164,21 @@ class FAGEFeatureSelector:
         """
         logger.info("RFECV process initializing...")
         
-        # Enforce numeric inputs
+        
         numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
         
-        # Guard: If features are too high, narrow down to top_k MI features first before RFECV execution
+        
         if len(numeric_cols) > self.mutual_info_top_k:
             logger.info(
                 f"Feature dimensionality ({len(numeric_cols)}) too high for direct RFECV iteration. "
                 f"Pruning to top {self.mutual_info_top_k} features using precomputed Mutual Information."
             )
-            # Ensure MI exists
+            
             if not self.mutual_info_scores_:
                 self.compute_mutual_information(X, y)
                 
             top_mi_cols = [col for col in self.mutual_info_scores_.keys() if col in numeric_cols][:self.mutual_info_top_k]
-            # Retain non-numeric data if any
+            
             non_numeric = [c for c in X.columns if c not in numeric_cols]
             X_reduced = X[top_mi_cols + non_numeric]
             numeric_cols = top_mi_cols
@@ -186,16 +186,16 @@ class FAGEFeatureSelector:
             X_reduced = X
 
         if estimator is None:
-            # NOTE: this used to default to LogisticRegression(penalty="l1", solver="liblinear"),
-            # which hung for 20+ minutes with no progress, reproduced 3 separate times in this
-            # audit at different candidate-feature counts (150, 400) and both n_jobs=1 and -1.
-            # Root cause: several features in this dataset are near-duplicates of each other
-            # (correlation 0.94-0.98) and L1-regularized liblinear's coordinate descent is
-            # ill-conditioned on that kind of collinearity — it doesn't error, it just grinds.
-            # Tree-based estimators are naturally robust to collinear features (a tree just
-            # picks one correlated feature and ignores the redundant ones; there's no matrix
-            # inversion or coordinate descent to destabilize), so this switches to a small,
-            # fast RandomForest instead.
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
             estimator = RandomForestClassifier(
                 n_estimators=50,
                 max_depth=5,
@@ -222,7 +222,7 @@ class FAGEFeatureSelector:
         self.rfecv_support_mask_ = selector.support_.tolist()
         self.rfecv_ranking_ = {col: int(rank) for col, rank in zip(numeric_cols, selector.ranking_)}
 
-        # Filter to selected support features
+        
         selected_numeric = [col for col, supported in zip(numeric_cols, selector.support_) if supported]
         logger.info(f"RFECV execution completed. Support count: {len(selected_numeric)} features selected out of {len(numeric_cols)}")
         return selected_numeric
@@ -260,13 +260,13 @@ class FAGEFeatureSelector:
                 "Filling missing features with default placeholder values during transform."
             )
             
-        # Re-index feature layout to guarantee index consistency matches modeling pipeline requirements
+        
         transformed = pd.DataFrame(index=X.index)
         for col in self.selected_features_:
             if col in X.columns:
                 transformed[col] = X[col]
             else:
-                transformed[col] = 0.0 # Default fallback
+                transformed[col] = 0.0 
                 
         return transformed
 

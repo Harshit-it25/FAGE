@@ -114,8 +114,8 @@ class FAGEDPEngine:
         """
         eps = epsilon if epsilon is not None else self.default_epsilon
         
-        # Define approximate sensitivities for metrics over n=1000 validation samples
-        # A single transaction change changes precision/recall by at most ~1/n = 0.001
+        
+        
         sensitivities = {
             "roc_auc": 0.002,
             "precision": 0.003,
@@ -136,7 +136,7 @@ class FAGEDPEngine:
             else:
                 noisy_val, scale = self.apply_laplace_mechanism(val, sens, eps)
             
-            # Clamp probabilities / ratios to realistic boundaries [0.0, 1.0] where appropriate
+            
             if metric_key in ("roc_auc", "precision", "recall", "f1_score", "c_factor", "false_positive_rate", "spy_threshold"):
                 noisy_val = max(0.001, min(0.999, noisy_val))
             
@@ -167,23 +167,23 @@ class FAGEDPEngine:
         Computes re-identification and linkage attack risk scores for graph structures.
         Evaluates k-anonymity (minimum equivalent topology class size) and l-diversity.
         """
-        # Estimate k-anonymity based on degree distribution density
-        # High max_degree in small clusters makes unique hubs identifiable (low k-anonymity)
+        
+        
         if node_count <= 0:
             return {"k_anonymity": 0, "l_diversity": 0.0, "reid_risk_score": 0.0, "risk_level": "Unknown"}
 
         avg_degree = (2.0 * edge_count) / max(1, node_count)
         degree_skew = max_degree / max(1.0, avg_degree)
         
-        # Approximate k-anonymity: how many nodes share similar local neighborhood signature
+        
         k_est = max(1, int(node_count / max(1.0, degree_skew * 1.5)))
         
-        # Approximate l-diversity index (diversity of sensitive labels like structuring flags)
+        
         struct_ratio = structuring_nodes / max(1, node_count)
         l_index = round(max(1.0, 1.0 / max(0.05, abs(struct_ratio - 0.5) * 2.0)), 2)
 
-        # Risk score formula between 0.0 (safe) and 1.0 (high linkage risk)
-        # If k_est is low (<3) and degree skew is high, risk approaches 0.8+
+        
+        
         risk_score = min(0.95, max(0.05, (1.0 / max(1, k_est)) * 0.7 + (degree_skew / 20.0) * 0.3))
         
         risk_level = "Low Risk (Anonymized)"
@@ -217,14 +217,14 @@ class FAGEDPEngine:
         struct_nodes = raw_graph_stats.get("structuring_nodes", 8)
         total_volume = raw_graph_stats.get("total_volume_exposed", 1250000.0)
 
-        # Compute re-identification risk before noise injection
+        
         reid_assessment = self.compute_reidentification_risk(node_count, edge_count, max_degree, struct_nodes)
 
-        # Sensitivities for graph counts: adding/removing one node changes node count by 1, degree by up to 2
+        
         node_noisy, scale_n = self.apply_laplace_mechanism(node_count, 1.0, eps * 0.25)
         edge_noisy, scale_e = self.apply_laplace_mechanism(edge_count, 2.0, eps * 0.25)
         struct_noisy, scale_s = self.apply_laplace_mechanism(struct_nodes, 1.0, eps * 0.25)
-        # Volume sensitivity (assume max transaction contribution $50,000)
+        
         vol_noisy, scale_v = self.apply_laplace_mechanism(total_volume, 50000.0, eps * 0.25)
 
         noisy_summary = {
@@ -248,5 +248,5 @@ class FAGEDPEngine:
         }
 
 
-# Global singleton instance for FAGE DP Engine
+
 dp_engine = FAGEDPEngine(max_epsilon=10.0, default_epsilon=0.5)

@@ -26,7 +26,7 @@ export const LiveFeed: React.FC = () => {
           });
         }
       } catch {
-        // keep-alive ping
+        
       }
     };
 

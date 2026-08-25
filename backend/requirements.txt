@@ -23,4 +23,5 @@ networkx==3.4.2
 httpx
 python-dotenv==1.0.1
 nemoguardrails==0.23.0
-langchain-openai
+langchain-openai==0.3.0
+openai>=1.0.0

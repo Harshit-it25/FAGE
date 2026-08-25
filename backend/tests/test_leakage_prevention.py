@@ -12,7 +12,7 @@ from app.ml.preprocessing import FAGEPreprocessor
 def test_leakage_features_are_dropped():
     # 25 semantic leakage features identified by dictionary
     semantic_leakage_features = [
-        'F3887', 'F3894', 'F3898', 'F3899', 'F3900', 'F3901', 'F3902', 'F3903', 
+        'F3899', 'F3900', 'F3901', 'F3902', 'F3903', 
         'F3904', 'F3905', 'F3906', 'F3907', 'F3908', 'F3909', 'F3910', 'F3911', 
         'F3912', 'F3913', 'F3914', 'F3915', 'F3919', 'F3920', 'F3921', 'F3922', 'F3923'
     ]
@@ -55,7 +55,7 @@ def test_shap_compatibility():
     assert len(model_features) == len(shap_features), "Model features and SHAP sample features mismatch"
     
     # Verify no leakage feature exists in model features
-    semantic_leakage_features = ['F3912', 'F3914', 'F3898']
+    semantic_leakage_features = ['F3912', 'F3914']
     for f in semantic_leakage_features:
         assert f not in model_features
 

@@ -16,15 +16,14 @@ from typing import Dict, List, Any, Optional
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics.pairwise import cosine_similarity
 from pydantic import BaseModel, Field
-from app.services.governance_service import build_sar_report_service, build_explanation_service, build_correlation_graph_service
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, status, Depends, UploadFile, File, Request, Header
+from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Query, status, Depends, UploadFile, File, Request, Header
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy.orm import Session, defer
+from sqlalchemy import or_
+from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from threading import Lock
 
@@ -33,7 +32,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.db import get_db, AlertModel, AuditLogModel, write_audit
 from app.auth import (
-    require_role,
     verify_api_key,
     authenticate_user,
     create_access_token,
@@ -45,16 +43,17 @@ from app.auth import (
 from app.services.risk_engine import FAGERiskEngine
 from app.ml.dp_engine import dp_engine, PrivacyBudgetExceededError
 from app.services.llm import call_nvidia_llm
+from app.services.governance_service import build_sar_report_service, build_explanation_service, build_correlation_graph_service
 
 from app.dependencies import (
-    risk_engine, GLOBAL_DECISION_THRESHOLD, _threshold_lock,
+    risk_engine,
     _COMPLIANCE_RULES,
     _active_alert_score_cutoffs, _load_active_model_metrics,
     _compute_rule_exception_rate, _build_real_sample_df,
     _login_failures, _LOGIN_MAX_ATTEMPTS, _LOGIN_WINDOW_SECONDS, _LOGIN_LOCKOUT_SECONDS,
     _check_login_throttle, _record_login_failure,
     _rate_limit_buckets, _rate_limit_lock, rate_limiter,
-    _correlate_cache, _CORRELATE_CACHE_TTL_SECONDS,
+    _correlate_cache, _correlate_cache_lock, _CORRELATE_CACHE_TTL_SECONDS,
 )
 from app.schemas import (
     PredictRequest, RiskScoreRequest, AlertUpdateRequest, AlertIngestRequest,
@@ -70,18 +69,7 @@ router = APIRouter(tags=["Governance"])
 
 @router.get("/dashboard", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
 def get_dashboard_summary(db: Session = Depends(get_db)):
-    alerts_data = db.query(AlertModel.id, AlertModel.status, AlertModel.risk_score, AlertModel.severity, AlertModel.sender_id, AlertModel.amount).all()
-    alerts = [
-        {
-            "id": a.id,
-            "status": a.status,
-            "risk_score": a.risk_score,
-            "severity": a.severity,
-            "sender_id": a.sender_id,
-            "amount": a.amount
-        }
-        for a in alerts_data
-    ]
+    alerts = [a.to_dict() for a in db.query(AlertModel).all()]
     total_alerts = len(alerts)
     open_alerts = sum(1 for a in alerts if a["status"] == "Open")
     investigating_alerts = sum(1 for a in alerts if a["status"] == "Investigating")
@@ -103,23 +91,20 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
     metrics_dict[risk_engine.default_model_name] = active_metrics
 
     unique_accounts = len({a.get("sender_id") for a in alerts if a.get("sender_id")})
-    # Use each alert's own stored severity tier, not a fixed risk_score cutoff. Risk scores are
-    # a 0-100 scaling of raw probability, and with a ~0.9% base fraud rate the cost-optimal
-    # score range clusters near 0-10, not 50-100 -- a fixed ">= 75" cutoff would silently
-    # exclude nearly every real flagged account from "critical_exposure", understating true
-    # financial exposure on this dashboard even while those accounts are correctly flagged
-    # elsewhere. severity/tier is already computed per-account at the correct, model-relative
-    # cutoff (see FAGERiskEngine.map_probability_to_scorecard), so reuse it here instead of
-    # re-deriving a second, inconsistent judgment from the raw number.
+    
+    
+    
+    
+    
+    
+    
+    
+    total_exposure = float(sum(a.get("amount") or 0 for a in alerts))
     critical_alerts = [a for a in alerts if a.get("severity") == "Critical"]
     critical_exposure = float(sum(a.get("amount") or 0 for a in critical_alerts))
-    mule_exposure = float(
-        sum(
-            a.get("amount") or 0
-            for a in alerts
-            if (a.get("id") or "").startswith("ALT-TGT-") or a.get("severity") in ("Critical", "High")
-        )
-    )
+    mule_alerts = [a for a in alerts if (a.get("id") or "").startswith("ALT-TGT-")]
+    dataset_alerts = [a for a in alerts if (a.get("id") or "").startswith("ALT-DS-")]
+    mule_exposure = float(sum(a.get("amount") or 0 for a in mule_alerts))
 
     active_metrics = _load_active_model_metrics()
 
@@ -129,7 +114,10 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
         "telemetry": {
             "total_incidents_recorded": total_alerts,
             "unique_accounts_analysed": unique_accounts,
+            "mule_alert_count": len(mule_alerts),
+            "dataset_alert_count": len(dataset_alerts),
             "critical_alert_count": len(critical_alerts),
+            "total_exposure_amount": total_exposure,
             "critical_exposure_amount": critical_exposure,
             "mule_exposure_amount": mule_exposure,
             "average_risk_rating": avg_score,
@@ -151,42 +139,94 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
 
 @router.get("/alerts", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
 def list_alerts_queue(
+    background_tasks: BackgroundTasks,
     status_filter: Optional[str] = Query(None, description="Select Alert status: Open, Investigating, Escalated, Closed."),
     severity_filter: Optional[str] = Query(None, description="Select Severity: Low, Medium, High, Critical."),
-    limit: int = Query(5000, ge=1, le=10000),
+    source_filter: Optional[str] = Query(None, description="Filter by data source: all, target, dataset."),
+    search: Optional[str] = Query(None, description="Search by alert id, account, or reason."),
+    assigned_to: Optional[str] = Query(None, description="Filter by assignee name."),
+    min_score: Optional[int] = Query(None, ge=0, le=100, description="Minimum risk score (inclusive)."),
+    max_score: Optional[int] = Query(None, ge=0, le=100, description="Maximum risk score (inclusive)."),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: AuthUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    query = db.query(AlertModel).options(defer(AlertModel.features))
+    query = db.query(AlertModel)
     if status_filter:
         query = query.filter(AlertModel.status.ilike(status_filter))
     if severity_filter:
         query = query.filter(AlertModel.severity.ilike(severity_filter))
-        
-    results = [a.to_dict(exclude_features=True) for a in query.limit(limit).all()]
-        
+    if source_filter == "target":
+        query = query.filter(or_(AlertModel.id.like("ALT-TGT-%"), AlertModel.risk_score >= 60))
+    elif source_filter == "dataset":
+        query = query.filter(AlertModel.id.like("ALT-DS-%"))
+    if assigned_to:
+        if assigned_to.lower() == "unassigned":
+            query = query.filter(or_(AlertModel.assigned_to.is_(None), AlertModel.assigned_to == "", AlertModel.assigned_to.ilike("unassigned")))
+        else:
+            query = query.filter(AlertModel.assigned_to.ilike(assigned_to))
+    if min_score is not None:
+        query = query.filter(AlertModel.risk_score >= min_score)
+    if max_score is not None:
+        query = query.filter(AlertModel.risk_score <= max_score)
+    if search:
+        term = f"%{search.strip()}%"
+        query = query.filter(or_(
+            AlertModel.id.ilike(term),
+            AlertModel.sender_id.ilike(term),
+            AlertModel.receiver_id.ilike(term),
+            AlertModel.reason.ilike(term),
+        ))
+
+    total_count = query.count()
+    results = [
+        a.to_dict()
+        for a in query.order_by(AlertModel._ts.desc()).offset(offset).limit(limit).all()
+    ]
+    slim_results = [{k: v for k, v in a.items() if k != "features"} for a in results]
+
+    from app.services.security_service import security_service
+    background_tasks.add_task(security_service.analyze_data_access, user.username, len(results))
+
     return {
         "status": "success",
         "alerts_count": len(results),
-        "alerts": results
+        "total_count": total_count,
+        "offset": offset,
+        "limit": limit,
+        "alerts": slim_results
     }
 
-@router.get("/alerts/{alert_id}/features", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
-def get_alert_features(alert_id: str, db: Session = Depends(get_db)):
+
+@router.get("/alerts/{alert_id}", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
+def get_alert_by_id(alert_id: str, db: Session = Depends(get_db)):
     alert = db.query(AlertModel).filter(AlertModel.id == alert_id).first()
     if not alert:
         raise HTTPException(
             status_code=404,
             detail=f"Target alert record matching reference [{alert_id}] could not be found."
         )
-    return {
-        "status": "success",
-        "features": json.loads(alert.features) if alert.features else {}
-    }
+    result = alert.to_dict()
+    slim = {k: v for k, v in result.items() if k != "features"}
+    return {"status": "success", "alert": slim}
+
+@router.get("/alerts/{alert_id}/features", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
+def get_alert_features(alert_id: str, db: Session = Depends(get_db)):
+    """Return the raw stored feature vector for a given alert (used by Investigation Workbench)."""
+    alert = db.query(AlertModel).filter(AlertModel.id == alert_id).first()
+    if not alert:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Target alert record matching reference [{alert_id}] could not be found."
+        )
+    features = json.loads(alert.features) if alert.features else {}
+    return {"status": "success", "alert_id": alert_id, "features": features}
 
 @router.post("/alerts", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
 def ingest_simulated_alert(payload: AlertIngestRequest, db: Session = Depends(get_db)):
-    score = payload.risk_score
-    _, severity, _ = risk_engine.map_probability_to_scorecard(score / 100.0)
+    score = payload.risk_score if payload.risk_score is not None else 0
+    _, severity, tier = risk_engine.map_probability_to_scorecard(score / 100.0)
 
     permitted_states = {"Open", "Investigating", "Escalated", "Closed"}
     status_state = payload.status or "Open"
@@ -219,7 +259,7 @@ def ingest_simulated_alert(payload: AlertIngestRequest, db: Session = Depends(ge
         features=json.dumps({}),
         _ts=time.time(),
         triage_action="PRIORITY_MANUAL_REVIEW" if score >= _active_alert_score_cutoffs()[0] else "STANDARD_MONITORING",
-        priority_tier=payload.severity or severity,
+        priority_tier=tier,
         pu_probability=float(score) / 100.0
     )
 
@@ -246,24 +286,24 @@ def update_alert_status_handler(
         )
 
     permitted_states = {"Open", "Investigating", "Escalated", "Closed"}
-    if payload.status.capitalize() not in permitted_states:
+    if payload.status is not None and payload.status.capitalize() not in permitted_states:
         raise HTTPException(
             status_code=400,
             detail=f"Provided status label of '{payload.status}' is not supported. Allowed: {permitted_states}"
         )
 
     operator = user.display_name or user.username
-    old_status = alert.status
-    alert.status = payload.status.capitalize()
-    
     log_time = datetime.now(UTC).strftime("%H:%M:%S UTC")
     new_logs = json.loads(alert.logs) if alert.logs else []
-    
-    new_logs.append({
-        "operator": operator,
-        "action": f"Changed status from {old_status} to {alert.status}",
-        "timestamp": log_time
-    })
+
+    if payload.status is not None:
+        old_status = alert.status
+        alert.status = payload.status.capitalize()
+        new_logs.append({
+            "operator": operator,
+            "action": f"Changed status from {old_status} to {alert.status}",
+            "timestamp": log_time
+        })
 
     if payload.notes:
         new_logs.append({
@@ -296,19 +336,26 @@ def update_alert_status_handler(
     )
 
     db.commit()
+    
+    result = alert.to_dict()
+    slim = {k: v for k, v in result.items() if k != "features"}
 
     return {
         "status": "success",
         "message": f"Alert {alert_id} status updated successfully to {alert.status}.",
-        "alert": alert.to_dict()
+        "alert": slim
     }
 
 @router.post("/alerts/{alert_id}/sar", response_model=SARResponse, tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
 async def generate_sar_report(alert_id: str, user: AuthUser = Depends(verify_api_key), db: Session = Depends(get_db)):
     return await build_sar_report_service(alert_id, user, db, risk_engine)
+
+
 @router.post("/alerts/{alert_id}/explain-plain-language", response_model=PlainLanguageExplanationResponse, tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
 async def generate_plain_language_explanation(alert_id: str, user: AuthUser = Depends(verify_api_key), db: Session = Depends(get_db)):
     return await build_explanation_service(alert_id, user, db, risk_engine)
+
+
 @router.get("/stream-alerts", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
 async def stream_alerts():
     async def event_generator():
@@ -326,7 +373,10 @@ async def stream_alerts():
 
         counter = 0
         while True:
-            await asyncio.sleep(2.5)
+            try:
+                await asyncio.sleep(2.5)
+            except asyncio.CancelledError:
+                break
             counter += 1
             db = SessionLocal()
             try:
@@ -345,90 +395,18 @@ async def stream_alerts():
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-@router.get("/similar-cases/{alert_id}", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key), Depends(rate_limiter(40, 60, "similar-cases"))])
-def similar_cases(alert_id: str, top_n: int = 5, user: AuthUser = Depends(verify_api_key), db: Session = Depends(get_db)):
-    """
-    Priority 5: Similar Past Cases via real cosine similarity over stored SHAP-driven feature
-    vectors -- no new ML, no fabricated case outcomes. Each alert already stores its full
-    preprocessed feature vector (AlertModel.features) and its top SHAP drivers
-    (AlertModel.explainability); similarity is computed directly over those real numbers.
-
-    IMPORTANT: this only surfaces what's actually in the alerts table. There is no
-    "confirmed mule" / "recovered amount" field in the schema -- outcome is reported using the
-    real `status` field (Open/Under Review/Closed) rather than inventing investigation results
-    that were never recorded.
-    """
-    target = db.query(AlertModel).filter(AlertModel.id == alert_id).first()
-    if not target or not target.features:
-        raise HTTPException(status_code=404, detail="Alert not found or has no stored feature vector.")
-
-    try:
-        target_features = json.loads(target.features)
-    except Exception:
-        raise HTTPException(status_code=422, detail="Stored feature vector could not be parsed.")
-
-    candidates = db.query(AlertModel).filter(AlertModel.id != alert_id, AlertModel.features.isnot(None)).all()
-    if not candidates:
-        return {"target_alert": alert_id, "similar_cases": [], "note": "No other alerts with stored feature vectors exist yet."}
-
-    # Align on the numeric keys common to the target and each candidate. Real preprocessed
-    # feature vectors, not embeddings invented for this feature -- same numbers the model
-    # itself was scored on.
-    common_numeric_keys = sorted([
-        k for k, v in target_features.items()
-        if isinstance(v, (int, float)) and not isinstance(v, bool)
-    ])
-    if not common_numeric_keys:
-        return {"target_alert": alert_id, "similar_cases": [], "note": "Target alert's feature vector has no numeric fields to compare."}
-
-    target_vec = np.array([float(target_features.get(k, 0.0)) for k in common_numeric_keys]).reshape(1, -1)
-
-    scored = []
-    for c in candidates:
-        try:
-            c_features = json.loads(c.features)
-        except Exception:
-            continue
-        c_vec = np.array([float(c_features.get(k, 0.0)) for k in common_numeric_keys]).reshape(1, -1)
-        if not np.any(c_vec):
-            continue
-        try:
-            sim = float(cosine_similarity(target_vec, c_vec)[0, 0])
-        except Exception:
-            continue
-        scored.append((sim, c))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    top = scored[:top_n]
-
-    similar_cases_out = []
-    for sim, c in top:
-        expl = {}
-        try:
-            expl = json.loads(c.explainability) if c.explainability else {}
-        except Exception:
-            pass
-        similar_cases_out.append({
-            "alert_id": c.id,
-            "similarity_pct": round(sim * 100, 1),
-            "risk_score": c.risk_score,
-            "status": c.status,  # real recorded status -- never a fabricated outcome label
-            "top_shap_drivers": [d.get("feature") for d in expl.get("key_risk_drivers", [])[:2]],
-            "timestamp": c.timestamp
-        })
-
-    return {
-        "target_alert": alert_id,
-        "similar_cases": similar_cases_out,
-        "method": "Cosine similarity over real preprocessed feature vectors (same features the model was scored on).",
-        "note": "Outcome shown is the real recorded alert status. This system does not track confirmed-fraud "
-                "or recovered-amount outcomes, so those are not shown or fabricated."
-    }
 
 @router.get("/correlate/{alert_id}", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key), Depends(rate_limiter(40, 60, "correlate"))])
 def correlate_alert(alert_id: str, user: AuthUser = Depends(verify_api_key), db: Session = Depends(get_db)):
+    
+    
+    
+    
+    
     return build_correlation_graph_service(alert_id, user, db)
-@router.post("/triage-eval", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key), Depends(require_role("admin"))])
+
+
+@router.post("/triage-eval", tags=["Governance & Operations"], dependencies=[Depends(verify_api_key)])
 async def evaluate_operational_triage(request: TriageEvalRequest):
     if not risk_engine.triage_policy:
         raise HTTPException(status_code=500, detail="Triage policy engine not initialized.")
@@ -457,7 +435,7 @@ async def submit_analyst_feedback(
     if not target_alert_id:
         raise HTTPException(status_code=400, detail="alert_id is required")
 
-    # Check alert in database if present
+    
     alert = db.query(AlertModel).filter(AlertModel.id == target_alert_id).first()
     alert_score = 0.5
     if alert:
@@ -467,7 +445,7 @@ async def submit_analyst_feedback(
         elif request.label in ["False Positive", "Legitimate", "Clear"]:
             alert.status = "Closed"
 
-    # Trigger online recalibration if enabled
+    
     old_c = getattr(risk_engine.pu_engine, "c_", 0.725) if risk_engine.pu_engine else 0.725
     new_c = old_c
     old_spy = getattr(risk_engine.pu_engine, "spy_threshold_", 0.152) if risk_engine.pu_engine else 0.152

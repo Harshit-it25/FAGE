@@ -4,10 +4,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.main import api_app as app
+from app.main import app as app
 
 
-client = TestClient(app)
+client = TestClient(app, base_url="http://testserver/api")
 def get_jwt(client):
     res = client.post("/token", data={"username": "admin", "password": "admin123"})
     return res.json()["access_token"]
@@ -69,6 +69,15 @@ def test_simulate_adversarial_shift_dormant_mules():
 
 def test_verify_audit_log_for_adaptive_shift():
     headers = {"Authorization": f"Bearer {get_jwt(client)}"}
+    
+    # Pre-populate audit log to avoid test ordering dependencies
+    payload = {
+        "shift_type": "micro_structuring",
+        "intensity": 0.85,
+        "trigger_adaptation": True
+    }
+    client.post("/adversarial-shift/simulate", json=payload, headers=headers)
+
     response = client.get(
         "/audit-logs?entity_type=pu_adaptive_engine",
         headers=headers
@@ -79,3 +88,4 @@ def test_verify_audit_log_for_adaptive_shift():
     assert len(data["logs"]) > 0
     latest = data["logs"][0]
     assert latest["action"] == "model.adversarial_shift_simulate"
+

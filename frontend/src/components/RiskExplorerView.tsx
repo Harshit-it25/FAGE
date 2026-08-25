@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, 
   Download, 
@@ -12,29 +12,65 @@ import {
   Flame,
   Info,
   CheckCircle,
-  HelpCircle
+  HelpCircle,
+  Loader2,
 } from 'lucide-react';
-import { Alert, SystemTheme } from '../types';
-import { AlertInfo } from '../services/api';
-import { useDashboardSummary, useSystemConfig } from '../hooks/useFageApi';
+import { Alert, SystemTheme, DataSourceType } from '../types';
+import { usePaginatedAlerts } from '../hooks/useFageApi';
+import { mapApiAlert } from '../utils/mapAlert';
 import { BatchUpload } from './BatchUpload';
 import { formatINR } from '../utils/format';
 
 interface RiskExplorerViewProps {
-  alerts: Alert[];
+  alerts?: Alert[];
   onSelectAlert: (id: string) => void;
   theme: SystemTheme;
+  dataSource?: DataSourceType;
+  isBackendOnline?: boolean;
 }
 
-export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskExplorerViewProps) {
+export default function RiskExplorerView({
+  alerts: alertsProp,
+  onSelectAlert,
+  theme,
+  dataSource = 'live-all',
+  isBackendOnline = true,
+}: RiskExplorerViewProps) {
   const isDark = theme === 'analytics';
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [timeframe, setTimeframe] = useState('7 Days');
   const [currentPage, setCurrentPage] = useState(1);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [minScore, setMinScore] = useState<number | ''>('');
   const [maxScore, setMaxScore] = useState<number | ''>('');
-  const { config } = useSystemConfig();
+
+  const serverMode = alertsProp === undefined;
+  const itemsPerPage = 25;
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const sourceFilter = dataSource === 'live-target' ? 'target' as const
+    : dataSource === 'live-dataset' ? 'dataset' as const
+    : undefined;
+
+  const { alerts: fetchedAlerts, totalCount, totalPages: serverTotalPages, loading } = usePaginatedAlerts({
+    source_filter: sourceFilter,
+    search: debouncedSearch || undefined,
+    min_score: minScore === '' ? undefined : minScore,
+    max_score: maxScore === '' ? undefined : maxScore,
+    page: currentPage,
+    pageSize: itemsPerPage,
+    enabled: serverMode && isBackendOnline,
+  });
+
+  const alerts = useMemo(() => {
+    if (!serverMode) return alertsProp!;
+    return fetchedAlerts.map(mapApiAlert);
+  }, [serverMode, alertsProp, fetchedAlerts]);
 
   const handleExportCSV = () => {
     const headers = ['Account ID', 'Risk Score', 'Confidence', 'Alert Severity'];
@@ -63,11 +99,10 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
     }
   };
 
-  // Filter & Search computation
   const filteredAlerts = useMemo(() => {
+    if (serverMode) return alerts;
     return alerts.filter((a) => {
-      // Search matching
-      const matchesSearch = 
+      const matchesSearch =
         a.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
         a.accountNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
         a.receiverAccountId.toLowerCase().includes(searchQuery.toLowerCase());
@@ -77,16 +112,15 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
 
       return matchesSearch && matchesMin && matchesMax;
     }).sort((a, b) => b.riskScore - a.riskScore);
-  }, [alerts, searchQuery, minScore, maxScore]);
+  }, [alerts, searchQuery, minScore, maxScore, serverMode]);
 
-  // Pagination bounds
-  const itemsPerPage = 5;
-  const totalItems = filteredAlerts.length;
-  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+  const totalItems = serverMode ? totalCount : filteredAlerts.length;
+  const totalPages = serverMode ? serverTotalPages : Math.ceil(totalItems / itemsPerPage) || 1;
   const paginatedAlerts = useMemo(() => {
+    if (serverMode) return filteredAlerts;
     const startIndex = (currentPage - 1) * itemsPerPage;
     return filteredAlerts.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredAlerts, currentPage]);
+  }, [filteredAlerts, currentPage, itemsPerPage, serverMode]);
 
   const handlePageChange = (page: number) => {
     if (page < 1 || page > totalPages) return;
@@ -129,7 +163,7 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
 
   return (
     <div className="space-y-6">
-      {/* Risk Explorer Header Top Banner */}
+      {}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className={`text-2xl font-extrabold tracking-tight ${isDark ? 'text-slate-100' : 'text-[#1a1b22]'}`}>
@@ -167,10 +201,10 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
         </div>
       </div>
 
-      {/* Batch Upload Section */}
+      {}
       <BatchUpload />
 
-      {/* Global deep searching widgets */}
+      {}
       <div className={`p-4 rounded-xl flex flex-col md:flex-row gap-4 items-end stitch-glass-card ${
         isDark ? '' : 'border-[#c4c5d5]'
       }`}>
@@ -281,7 +315,13 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
       <div className={`rounded-xl overflow-hidden stitch-glass-card ${
         isDark ? '' : 'border-[#c4c5d5]'
       }`}>
-        <div className="table-scroll overflow-x-auto w-full">
+        {loading && serverMode && (
+          <div className="flex items-center justify-center gap-2 p-8 text-slate-400">
+            <Loader2 size={18} className="animate-spin" />
+            <span className="text-xs font-semibold">Loading risk data...</span>
+          </div>
+        )}
+        <div className={`table-scroll overflow-x-auto w-full ${loading && serverMode ? 'hidden' : ''}`}>
           <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
             <thead>
               <tr className={`border-b ${isDark ? 'bg-black/20 border-slate-800' : 'bg-[#f4f2fc] border-[#c4c5d5]'}`}>
@@ -297,10 +337,10 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
             <tbody className="divide-y divide-slate-300/40 dark:divide-slate-800/60">
               {paginatedAlerts.length > 0 ? (
                 paginatedAlerts.map((a) => {
-                  const isHigh = a.alertSeverity === 'High' || a.alertSeverity === 'Critical';
-                  const isMed = a.alertSeverity === 'Medium';
-                  const barColor = isHigh ? 'bg-red-500' : isMed ? 'bg-amber-500' : 'bg-green-500';
-                  const textColor = isHigh ? 'text-red-500' : isMed ? 'text-amber-500' : 'text-green-500';
+                  const isHighScore = a.riskScore >= 75;
+                  const isMedScore = a.riskScore >= 50 && a.riskScore < 75;
+                  const barColor = isHighScore ? 'bg-red-500' : isMedScore ? 'bg-amber-500' : 'bg-green-500';
+                  const textColor = isHighScore ? 'text-red-500' : isMedScore ? 'text-amber-500' : 'text-green-500';
                   
                   return (
                     <tr 
@@ -339,8 +379,12 @@ export default function RiskExplorerView({ alerts, onSelectAlert, theme }: RiskE
                           <span className="text-slate-500 text-[10px] uppercase font-semibold">Standard</span>
                         )}
                       </td>
-                      <td className="p-3.5 font-mono text-slate-400 font-semibold whitespace-nowrap">
-                        <span className="inline-block whitespace-nowrap">{a.confidenceVal.toFixed(1)}%</span>
+                      <td className="p-3.5">
+                        {a.confidence === 'Unavailable' ? (
+                          <span className="inline-block whitespace-nowrap text-on-surface-variant">Unavailable</span>
+                        ) : (
+                          <span className="inline-block whitespace-nowrap">{a.confidenceVal.toFixed(1)}%</span>
+                        )}
                       </td>
                       <td className="p-3.5">{getSeverityBadge(a.prio)}</td>
                       <td className="p-3.5 text-right">

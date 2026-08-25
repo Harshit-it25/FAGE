@@ -8,10 +8,10 @@ from datetime import datetime, timedelta, UTC
 from fastapi.testclient import TestClient
 from jose import jwt
 
-from app.main import api_app as app
+from app.main import app as app
 from app.auth import SECRET_KEY, ALGORITHM
 
-client = TestClient(app)
+client = TestClient(app, base_url="http://testserver/api")
 
 
 def _protected_call(token: str):
@@ -30,8 +30,8 @@ def test_expired_token_rejected():
 
 
 def test_tampered_payload_rejected():
-    # Forge a token with the CORRECT secret but then flip a character in the signature --
-    # simulates an attacker who intercepted a token and tried to modify it.
+    
+    
     valid = jwt.encode(
         {"sub": "analyst", "role": "analyst", "exp": datetime.now(UTC) + timedelta(minutes=30)},
         SECRET_KEY,
@@ -39,9 +39,9 @@ def test_tampered_payload_rejected():
     )
     header, payload, signature = valid.split(".")
     
-    # Tamper the PAYLOAD, not the signature, because base64 decoding of the signature
-    # can sometimes ignore changes to the last character if it doesn't change the underlying bytes.
-    # We want to simulate changing the role or sub.
+    
+    
+    
     import base64
     import json
     
@@ -55,7 +55,7 @@ def test_tampered_payload_rejected():
 
 
 def test_forged_with_wrong_secret_rejected():
-    # Attacker who does NOT know SECRET_KEY tries to mint their own admin token.
+    
     forged = jwt.encode(
         {"sub": "admin", "role": "admin", "exp": datetime.now(UTC) + timedelta(minutes=30)},
         "attacker-guessed-secret-1234",
@@ -72,8 +72,8 @@ def test_malformed_token_rejected():
 
 
 def test_valid_signature_unknown_user_rejected():
-    # Token is cryptographically valid (correct secret, correct alg, not expired) but the
-    # subject doesn't correspond to any real user -- e.g. a user deleted after token issuance.
+    
+    
     ghost = jwt.encode(
         {"sub": "deleted_user_ghost", "role": "admin", "exp": datetime.now(UTC) + timedelta(minutes=30)},
         SECRET_KEY,
@@ -106,7 +106,7 @@ def test_role_enforcement_admin_can_reach_admin_route():
 
 
 def test_valid_token_still_works_after_all_the_above():
-    # Sanity check: none of the above accidentally broke normal, legitimate auth.
+    
     ok = client.post("/token", data={"username": "admin", "password": "admin123"})
     assert ok.status_code == 200
     headers = {"Authorization": f"Bearer {ok.json()['access_token']}"}
@@ -125,4 +125,5 @@ def test_rbac_admin_can_tune_threshold():
     headers = {"Authorization": f"Bearer {admin.json()['access_token']}"}
     resp = client.post("/tune-threshold", json={"new_threshold": 0.6}, headers=headers)
     assert resp.status_code == 200
+
 

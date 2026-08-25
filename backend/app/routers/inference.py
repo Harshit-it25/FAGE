@@ -16,12 +16,8 @@ from typing import Dict, List, Any, Optional
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics.pairwise import cosine_similarity
-from pydantic import BaseModel, Field
-
 from fastapi import APIRouter, FastAPI, HTTPException, Query, status, Depends, UploadFile, File, Request, Header
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -40,12 +36,9 @@ from app.auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     TokenResponse,
 )
-from app.services.risk_engine import FAGERiskEngine
-from app.ml.dp_engine import dp_engine, PrivacyBudgetExceededError
-from app.services.llm import call_nvidia_llm
-
 from app.dependencies import (
-    risk_engine, GLOBAL_DECISION_THRESHOLD, _threshold_lock,
+    risk_engine,
+    get_global_threshold,
     _COMPLIANCE_RULES,
     _active_alert_score_cutoffs, _load_active_model_metrics,
     _compute_rule_exception_rate, _build_real_sample_df,
@@ -80,8 +73,7 @@ def predict_fraud_probability(request: PredictRequest):
         selected_df = risk_engine.selector.transform(aligned_df)
 
         prob = float(risk_engine.classifier.predict_proba(selected_df)[0, 1])
-        with _threshold_lock:
-            threshold = GLOBAL_DECISION_THRESHOLD
+        threshold = get_global_threshold()  
         class_label = int(prob >= threshold)
 
         return {
@@ -100,7 +92,7 @@ def predict_fraud_probability(request: PredictRequest):
         logger.error(f"Prediction execution failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Inference Engine execution exception: {str(e)}")
 
-@router.post("/explain", tags=["Inference Engine"], dependencies=[Depends(verify_api_key)])
+@router.post("/explain", tags=["Inference Engine"])
 async def explain_case_attribution(request: PredictRequest, user: AuthUser = Depends(verify_api_key), db: Session = Depends(get_db)):
     if not risk_engine.is_production_ready:
         raise HTTPException(
@@ -151,15 +143,15 @@ def score_and_evaluate_transaction(request: RiskScoreRequest, user: AuthUser = D
 
         scorecard = risk_engine.score_single_case(payload)
 
-        # Priority 1: Natural-language investigation summary, built entirely from the real
-        # fields already computed above (no graph_intel here -- that only exists once an alert
-        # has been created and /correlate is called against it).
+        
+        
+        
         scorecard["investigation_summary"] = risk_engine.generate_investigation_summary(scorecard, graph_intel=None)
         
-        # Gate is anchored to the active model's own cost-optimal threshold (see
-        # _active_alert_score_cutoffs docstring) -- a fixed ">= 50" here silently dropped
-        # alert creation for almost all real fraud, since real flagged scores cluster near 0-10.
-        alert_medium_cutoff, _ = _active_alert_score_cutoffs()
+        
+        
+        
+        alert_medium_cutoff, alert_high_cutoff = _active_alert_score_cutoffs()
         if scorecard["scores"]["final_risk_score"] >= alert_medium_cutoff:
             existing = db.query(AlertModel).filter(AlertModel.transaction_id == scorecard["transaction_id"]).first()
         
@@ -199,7 +191,7 @@ def score_and_evaluate_transaction(request: RiskScoreRequest, user: AuthUser = D
                     triage_action=(
                         scorecard["categorizations"]["triage_routing"]["triage_action"]
                         if isinstance(scorecard.get("categorizations"), dict) and isinstance(scorecard["categorizations"].get("triage_routing"), dict)
-                        else ("FAST_TRACK_FREEZE" if scorecard["scores"]["final_risk_score"] >= _active_alert_score_cutoffs()[1] else ("PRIORITY_MANUAL_REVIEW" if scorecard["scores"]["final_risk_score"] >= alert_medium_cutoff else "STANDARD_MONITORING"))
+                        else ("FAST_TRACK_FREEZE" if scorecard["scores"]["final_risk_score"] >= alert_high_cutoff else ("PRIORITY_MANUAL_REVIEW" if scorecard["scores"]["final_risk_score"] >= alert_medium_cutoff else "STANDARD_MONITORING"))
                     ),
                     priority_tier=(
                         scorecard["categorizations"]["triage_routing"]["priority_tier"]
@@ -210,11 +202,11 @@ def score_and_evaluate_transaction(request: RiskScoreRequest, user: AuthUser = D
                 )
                 db.add(new_alert)
                 try:
-                    # Alert creation is the single most compliance-relevant write this API
-                    # performs -- it can recommend account freezes. It previously had NO
-                    # corresponding audit log entry. Logged in the SAME transaction as the
-                    # alert itself (write_audit adds to the session; committed together below)
-                    # so the two can never diverge -- either both persist or neither does.
+                    
+                    
+                    
+                    
+                    
                     write_audit(
                         db,
                         actor=user.username,
@@ -231,7 +223,7 @@ def score_and_evaluate_transaction(request: RiskScoreRequest, user: AuthUser = D
                     scorecard["associated_alert_id"] = alert_id
                     logger.info(f"Generated operational alert incident successfully relative to task: {alert_id}")
                 except IntegrityError:
-                    # Another concurrent request for the same transaction_id won the insert race.
+                    
                     db.rollback()
                     winner = db.query(AlertModel).filter(AlertModel.transaction_id == scorecard["transaction_id"]).first()
                     scorecard["associated_alert_id"] = winner.id if winner else None
@@ -315,6 +307,12 @@ async def batch_score_transactions(file: UploadFile = File(...), user: AuthUser 
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported.")
     try:
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(0)
+        if file_size > 5 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File too large. Maximum size is 5MB.")
+            
         content = await file.read()
         results = await run_in_threadpool(_process_batch_csv, content)
 
@@ -325,7 +323,7 @@ async def batch_score_transactions(file: UploadFile = File(...), user: AuthUser 
             action="alert.batch_ingest",
             entity_type="alert",
             entity_id=file.filename,
-            detail=f"Batch scored {results.get('total_processed', 0)} transactions",
+            detail=f"Batch scored {results.get('processed_rows', 0)} transactions",
             auth_method=user.auth_method,
         )
         db.commit()

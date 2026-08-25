@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   Eye,
@@ -8,18 +8,24 @@ import {
   ShieldAlert,
   ArrowRight,
   UserPlus,
+  Loader2,
 } from 'lucide-react';
-import { Alert, SystemTheme } from '../types';
+import { Alert, SystemTheme, DataSourceType } from '../types';
 import { formatINR } from '../utils/format';
+import { usePaginatedAlerts } from '../hooks/useFageApi';
+import { mapApiAlert } from '../utils/mapAlert';
 
 interface AlertsQueueViewProps {
-  alerts: Alert[];
+  alerts?: Alert[];
   onSelectAlert: (id: string) => void;
   onUpdateStatus: (id: string, status: 'Open' | 'Escalated' | 'Closed' | 'Investigating') => void;
   onUpdateAssignment?: (id: string, assignee: string) => void;
   onBulkStatus?: (ids: string[], status: 'Open' | 'Escalated' | 'Closed' | 'Investigating') => void;
   theme: SystemTheme;
   currentUserName?: string;
+  dataSource?: DataSourceType;
+  isBackendOnline?: boolean;
+  refreshKey?: number;
 }
 
 const ASSIGNEES = ['Unassigned', 'Admin (Operator)', 'SOC Analyst', 'Senior Investigator', 'Compliance Lead'];
@@ -52,24 +58,59 @@ function slaInfo(alert: Alert): { label: string; overdue: boolean; hours: number
 }
 
 export default function AlertsQueueView({
-  alerts,
+  alerts: alertsProp,
   onSelectAlert,
   onUpdateStatus,
   onUpdateAssignment,
   onBulkStatus,
   theme,
   currentUserName = 'Admin (Operator)',
+  dataSource = 'live-all',
+  isBackendOnline = true,
+  refreshKey = 0,
 }: AlertsQueueViewProps) {
   const isDark = theme === 'analytics';
   const [activeQueueTab, setActiveQueueTab] = useState<'All' | 'Open' | 'Escalated' | 'Closed' | 'Investigating'>('All');
   const [searchWord, setSearchWord] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [assigneeFilter, setAssigneeFilter] = useState<string>('All');
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
 
+  const serverMode = alertsProp === undefined;
+  const [itemsPerPage] = useState(serverMode ? 50 : 100);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchWord), 300);
+    return () => clearTimeout(timer);
+  }, [searchWord]);
+
+  const sourceFilter = dataSource === 'live-target' ? 'target' as const
+    : dataSource === 'live-dataset' ? 'dataset' as const
+    : undefined;
+
+  const statusFilter = activeQueueTab === 'All' ? undefined : activeQueueTab;
+
+  const { alerts: fetchedAlerts, totalCount, totalPages: serverTotalPages, loading } = usePaginatedAlerts({
+    status_filter: statusFilter,
+    source_filter: sourceFilter,
+    search: debouncedSearch || undefined,
+    assigned_to: assigneeFilter !== 'All' ? assigneeFilter : undefined,
+    page: currentPage,
+    pageSize: itemsPerPage,
+    enabled: serverMode && isBackendOnline,
+    refreshKey,
+  });
+
+  const alerts = useMemo(() => {
+    if (!serverMode) return alertsProp!;
+    return fetchedAlerts.map(mapApiAlert);
+  }, [serverMode, alertsProp, fetchedAlerts]);
+
   const filteredQueue = useMemo(() => {
+    if (serverMode) return alerts;
     return alerts.filter(a => {
       const matchesTab = activeQueueTab === 'All' || a.status === activeQueueTab;
       const matchesSearch =
@@ -81,15 +122,15 @@ export default function AlertsQueueView({
         (a.assignedTo || 'Unassigned') === assigneeFilter;
       return matchesTab && matchesSearch && matchesAssignee;
     });
-  }, [alerts, activeQueueTab, searchWord, assigneeFilter]);
+  }, [alerts, serverMode, activeQueueTab, searchWord, assigneeFilter, alertsProp]);
 
-  const [itemsPerPage] = useState(100);
-  const totalItems = filteredQueue.length;
-  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+  const totalItems = serverMode ? totalCount : filteredQueue.length;
+  const totalPages = serverMode ? serverTotalPages : Math.ceil(totalItems / itemsPerPage) || 1;
   const paginatedQueue = useMemo(() => {
+    if (serverMode) return filteredQueue;
     const startIndex = (currentPage - 1) * itemsPerPage;
     return filteredQueue.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredQueue, currentPage]);
+  }, [filteredQueue, currentPage, itemsPerPage, serverMode]);
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -182,7 +223,7 @@ export default function AlertsQueueView({
           <div className={`p-2 px-3 border rounded-lg ${isDark ? 'bg-black/10 border-white/5' : 'bg-slate-50 border-[#c4c5d5]'}`}>
             <span className="text-slate-400 text-[10px] block font-semibold leading-none uppercase">Total Pending</span>
             <span className={`text-lg font-black mt-1 block leading-none ${isDark ? 'text-cyan-300' : 'text-[#1e40af]'}`}>
-              {alerts.filter(a => a.status !== 'Closed').length}
+              {serverMode ? totalCount : alerts.filter(a => a.status !== 'Closed').length}
             </span>
           </div>
           <div className={`p-2 px-3 border rounded-lg ${isDark ? 'bg-black/10 border-white/5' : 'bg-slate-50 border-[#c4c5d5]'}`}>
@@ -203,7 +244,9 @@ export default function AlertsQueueView({
       <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-300 dark:border-slate-800 pb-px text-xs font-sans">
         {(['All', 'Open', 'Escalated', 'Investigating', 'Closed'] as const).map(tab => {
           const isActive = activeQueueTab === tab;
-          const count = tab === 'All' ? alerts.length : alerts.filter(a => a.status === tab).length;
+          const count = serverMode
+            ? (tab === activeQueueTab ? totalCount : '—')
+            : (tab === 'All' ? alerts.length : alerts.filter(a => a.status === tab).length);
           return (
             <button
               key={tab}
@@ -305,7 +348,13 @@ export default function AlertsQueueView({
       </div>
 
       <div className={`rounded-xl overflow-hidden stitch-glass-card ${isDark ? '' : 'border-[#c4c5d5]'}`}>
-        <div className="table-scroll overflow-x-auto w-full">
+        {loading && serverMode && (
+          <div className="flex items-center justify-center gap-2 p-8 text-slate-400">
+            <Loader2 size={18} className="animate-spin" />
+            <span className="text-xs font-semibold">Loading alerts...</span>
+          </div>
+        )}
+        <div className={`table-scroll overflow-x-auto w-full ${loading && serverMode ? 'hidden' : ''}`}>
           <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
             <thead>
               <tr className={`border-b ${isDark ? 'bg-black/20 border-white/5' : 'bg-[#f4f2fc] border-[#c4c5d5]'}`}>

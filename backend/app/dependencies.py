@@ -20,8 +20,9 @@ from app.db import AlertModel
 from app.services.risk_engine import FAGERiskEngine
 
 logger = logging.getLogger("FAGE.API.Backend")
+_INR_USD_RATE = float(os.environ.get('FAGE_INR_USD_RATE', '83.5'))
 
-# Instantiate Global Risk Engine
+
 risk_engine = FAGERiskEngine(
     models_dir=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models"),
     override_rules_enabled=True
@@ -29,28 +30,50 @@ risk_engine = FAGERiskEngine(
 
 GLOBAL_DECISION_THRESHOLD = 0.50
 try:
-    metadata_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "model_metadata.json")
-    if os.path.exists(metadata_path):
-        with open(metadata_path, "r", encoding="utf-8") as f:
+    model_metadata_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "model_metadata.json")
+    if os.path.exists(model_metadata_path):
+        with open(model_metadata_path, "r", encoding="utf-8") as f:
             meta = json.load(f)
-            GLOBAL_DECISION_THRESHOLD = float(meta.get("threshold", 0.60))
-        logger.info(f"Seeded GLOBAL_DECISION_THRESHOLD={GLOBAL_DECISION_THRESHOLD} from canonical model_metadata.json.")
+        
+        xgb_threshold = meta.get("decision_threshold")
+        if xgb_threshold is not None:
+            GLOBAL_DECISION_THRESHOLD = float(xgb_threshold)
+            logger.info(f"Seeded GLOBAL_DECISION_THRESHOLD={GLOBAL_DECISION_THRESHOLD} from model_metadata.json.")
+        else:
+            logger.warning("model_metadata.json has no 'decision_threshold' key — using default 0.50.")
     else:
-        logger.warning("model_metadata.json unavailable. Using default 0.60.")
-        GLOBAL_DECISION_THRESHOLD = 0.60
+        logger.warning("model_metadata.json unavailable. Using safe default 0.50.")
 except Exception as e:
     logger.warning(f"Failed to load canonical threshold from model_metadata.json: {e}")
 
 _threshold_lock = Lock()
 
-# ---------------------------------------------------------------------------
-# Module-level compliance rules loader — same pattern as risk_engine.py's
-# evaluate_heuristic_overrides().  Loaded once at startup; falls back to
-# safe defaults so the server still starts if the file is missing or corrupt.
-# NOTE: dormant_account_reactivation_days and high_risk_corridor_pairs exist
-# in compliance_rules.json but are NOT yet consumed here — they are reserved
-# for v2 feature additions and clearly marked in the JSON.
-# ---------------------------------------------------------------------------
+def get_global_threshold() -> float:
+    """Thread-safe getter for the global decision threshold.
+    Use this instead of reading GLOBAL_DECISION_THRESHOLD directly when the
+    value may have been updated at runtime via /tune-threshold.
+    """
+    with _threshold_lock:
+        return GLOBAL_DECISION_THRESHOLD
+
+def set_global_threshold(new_value: float) -> None:
+    """Thread-safe setter for the global decision threshold.
+    This must be the only mutation point so every module reading via
+    get_global_threshold() sees the updated value immediately.
+    """
+    global GLOBAL_DECISION_THRESHOLD
+    with _threshold_lock:
+        GLOBAL_DECISION_THRESHOLD = new_value
+    logger.info(f"GLOBAL_DECISION_THRESHOLD updated to {new_value}")
+
+
+
+
+
+
+
+
+
 _COMPLIANCE_RULES_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "compliance_rules.json"
 )
@@ -69,7 +92,7 @@ try:
     if os.path.exists(_COMPLIANCE_RULES_PATH):
         with open(_COMPLIANCE_RULES_PATH, "r", encoding="utf-8") as _f:
             _loaded = json.load(_f)
-            # Strip comment-only keys (prefixed with "_comment") before merging
+            
             _COMPLIANCE_RULES.update(
                 {k: v for k, v in _loaded.items() if not k.startswith("_comment")}
             )
@@ -87,11 +110,26 @@ _LOGIN_LOCKOUT_SECONDS = 60
 
 _rate_limit_buckets: Dict[str, List[float]] = {}
 _rate_limit_lock = Lock()
+# TODO: Move rate limiting and login failures to Redis for horizontal scalability in production
 
-# /correlate response cache -- see correlate_alert() docstring-comment for rationale.
 _correlate_cache: Dict[str, tuple] = {}
+_correlate_cache_lock = Lock()
 _CORRELATE_CACHE_TTL_SECONDS = 30
 
+def get_correlate_cache(alert_id: str) -> Optional[dict]:
+    with _correlate_cache_lock:
+        cached = _correlate_cache.get(alert_id)
+        if cached and (time.time() - cached[0]) < _CORRELATE_CACHE_TTL_SECONDS:
+            return cached[1]
+    return None
+
+def set_correlate_cache(alert_id: str, result: dict) -> None:
+    now = time.time()
+    with _correlate_cache_lock:
+        stale_keys = [k for k, v in _correlate_cache.items() if now - v[0] >= _CORRELATE_CACHE_TTL_SECONDS]
+        for k in stale_keys:
+            del _correlate_cache[k]
+        _correlate_cache[alert_id] = (now, result)
 
 def _active_alert_score_cutoffs() -> tuple:
     """
@@ -117,23 +155,35 @@ def _active_alert_score_cutoffs() -> tuple:
     return (medium_cutoff, high_cutoff)
 
 def _load_active_model_metrics() -> dict:
-    """Pull metrics for the currently active classifier, respecting GLOBAL_DECISION_THRESHOLD."""
+    """Pull metrics for the currently active classifier from the canonical model_metadata.json.
+
+    Key mapping (model_metadata.json → returned dict):
+      honest_nested_cv_estimate_15fold_3seed_HEADLINE.precision_mean → precision
+      honest_nested_cv_estimate_15fold_3seed_HEADLINE.recall_mean    → recall
+      honest_nested_cv_estimate_15fold_3seed_HEADLINE.f1_mean        → f1
+      honest_nested_cv_estimate_10fold_2seed.auc                     → roc_auc
+      top-level mcc, fpr, brier_score                                → mcc, fpr, brier_score
+    """
     try:
         metadata_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "model_metadata.json")
         if os.path.exists(metadata_path):
             with open(metadata_path, "r", encoding="utf-8") as f:
                 meta = json.load(f)
-            metrics = meta.get("metrics", {})
+            headline = meta.get("honest_nested_cv_estimate_15fold_3seed_HEADLINE", {})
+            cv10 = meta.get("honest_nested_cv_estimate_10fold_2seed", {})
             return {
-                "precision": float(metrics.get("cv_precision", 0.0)),
-                "recall": float(metrics.get("cv_recall", 0.0)),
-                "f1": float(metrics.get("cv_f1", 0.0)),
-                "accuracy": 0.9624,
-                "threshold": float(meta.get("threshold", GLOBAL_DECISION_THRESHOLD))
+                "precision": float(headline.get("precision_mean", 0.0)),
+                "recall":    float(headline.get("recall_mean", 0.0)),
+                "f1":        float(headline.get("f1_mean", 0.0)),
+                "roc_auc":   float(cv10.get("auc", 0.0)),
+                "fpr":       float(meta.get("fpr", 0.0)),
+                "mcc":       float(meta.get("mcc", 0.0)),
+                "brier_score": float(meta.get("brier_score", 0.0)),
+                "threshold": float(meta.get("threshold", get_global_threshold()))
             }
     except Exception as e:
         logger.error(f"Could not load canonical model metrics: {e}")
-    return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "accuracy": 0.0, "threshold": GLOBAL_DECISION_THRESHOLD}
+    return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "roc_auc": 0.0, "fpr": 0.0, "mcc": 0.0, "brier_score": 0.0, "threshold": get_global_threshold()}
 
 def _compute_rule_exception_rate(db: Session) -> float:
     """
@@ -177,10 +227,12 @@ def _build_real_sample_df(db: Session, n: int = 10) -> pd.DataFrame:
         sample = random.sample(candidates, min(n, len(candidates)))
         for alert in sample:
             feat = alert["features"]
-            row = {
-                col: float(feat[col]) if col in feat else float(means.get(col, 0.0))
-                for col in selected_cols
-            }
+            row = {}
+            for col in selected_cols:
+                try:
+                    row[col] = float(feat[col]) if col in feat else float(means.get(col, 0.0))
+                except ValueError:
+                    row[col] = float(means.get(col, 0.0))
             rows.append(row)
 
     while len(rows) < n:
@@ -192,7 +244,12 @@ def _check_login_throttle(username: str) -> None:
     now = time.time()
     attempts = [t for t in _login_failures.get(username, []) if now - t < _LOGIN_WINDOW_SECONDS]
     _login_failures[username] = attempts
-    if len(attempts) >= _LOGIN_MAX_ATTEMPTS and (now - attempts[-1]) < _LOGIN_LOCKOUT_SECONDS:
+    
+    stale_keys = [k for k, v in list(_login_failures.items()) 
+                  if k != username and not [t for t in v if now - t < _LOGIN_WINDOW_SECONDS]]
+    for k in stale_keys:
+        del _login_failures[k]
+    if len(attempts) >= _LOGIN_MAX_ATTEMPTS and (now - attempts[0]) < _LOGIN_LOCKOUT_SECONDS:
         raise HTTPException(
             status_code=429,
             detail="Too many failed login attempts for this account. Try again in a minute.",
@@ -223,5 +280,9 @@ def rate_limiter(max_requests: int, window_seconds: int, route_name: str):
                 )
             attempts.append(now)
             _rate_limit_buckets[key] = attempts
+            
+            stale_keys = [k for k, v in list(_rate_limit_buckets.items()) if k != key and all(now - t >= window_seconds for t in v)]
+            for k in stale_keys:
+                del _rate_limit_buckets[k]
     return _check
 

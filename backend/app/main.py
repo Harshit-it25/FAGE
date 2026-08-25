@@ -11,19 +11,20 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-# Add parent pathing to python import stream to load custom local ML modules
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
-# Pydantic models are still defined here AND re-exported from app.schemas
-from app.schemas import *  # noqa: F401,F403 — backward-compat re-export
 
-# Setup Logging
+# Removed wildcard schema import
+
+
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s [%(name)s] %(message)s")
 logger = logging.getLogger("FAGE.API.Backend")
 
-# Indicative INR->USD rate for SAR display only — not a live FX feed.
-_INR_USD_RATE = float(os.environ.get("FAGE_INR_USD_RATE", "83.5"))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,6 +46,19 @@ async def lifespan(app: FastAPI):
                 "SECURITY WARNING: Running with missing or default hardcoded FAGE_JWT_SECRET. "
                 "This is permitted only in development/testing mode."
             )
+            
+    
+    from app.services.mule_similarity import similarity_engine
+    from app.db import SessionLocal, Base, engine, ensure_schema_columns
+    db = SessionLocal()
+    try:
+        # Run schema migrations explicitly at startup, not at import time
+        Base.metadata.create_all(bind=engine)
+        ensure_schema_columns(engine)
+        similarity_engine.initialize(db)
+    finally:
+        db.close()
+        
     yield
 
 app = FastAPI(
@@ -70,7 +84,7 @@ async def _consistent_validation_error_handler(request: Request, exc: RequestVal
         content={"detail": summary, "errors": exc.errors()},
     )
 
-# Configure CORS Middleware
+
 _cors_origins_env = os.environ.get("FAGE_CORS_ORIGINS", "").strip()
 _cors_origins = (
     [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
@@ -87,33 +101,33 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
-    """Baseline security headers on every response."""
+    """Baseline security headers."""
     response = await call_next(request)
+    
+    # Injected Secure Headers
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:* ws://localhost:* http://127.0.0.1:*;"
     response.headers["Referrer-Policy"] = "no-referrer"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), bluetooth=()"
+
     return response
 
-# ── Router registration (Task 8 split) ────────────────────────────────
+
 from app.routers import system as _router_system
 from app.routers import auth as _router_auth
 from app.routers import governance as _router_governance
 from app.routers import analytics as _router_analytics
 from app.routers import inference as _router_inference
-app.include_router(_router_system.router)
-app.include_router(_router_auth.router)
-app.include_router(_router_governance.router)
-app.include_router(_router_analytics.router)
-app.include_router(_router_inference.router)
+app.include_router(_router_system.router, prefix="/api")
+app.include_router(_router_auth.router, prefix="/api")
+app.include_router(_router_governance.router, prefix="/api")
+app.include_router(_router_analytics.router, prefix="/api")
+app.include_router(_router_inference.router, prefix="/api")
 
-# ==========================================
-# Unified Deployment
-# ==========================================
-api_app = app
-app = FastAPI(lifespan=lifespan)
 
-app.mount("/api", api_app)
+
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "frontend", "dist")
 if os.path.exists(static_dir):
