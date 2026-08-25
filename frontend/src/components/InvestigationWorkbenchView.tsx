@@ -5,6 +5,7 @@ import { usePaginatedAlerts } from '../hooks/useFageApi';
 import { mapApiAlert } from '../utils/mapAlert';
 import { formatINR } from '../utils/format';
 import { NetworkGraph } from './NetworkGraph';
+import SARDocumentViewer from './SARDocumentViewer';
 import { 
   Filter, 
   ArrowUpDown, 
@@ -801,9 +802,15 @@ export default function InvestigationWorkbenchView({
               </div>
               
               {sarReport ? (
-                <div className="bg-surface-container-low border border-outline-variant rounded-lg p-6 font-mono text-xs leading-relaxed text-on-surface-variant overflow-y-auto max-h-[400px] whitespace-pre-wrap custom-scrollbar">
-                  {sarReport}
-                </div>
+                <SARDocumentViewer
+                  sarReport={sarReport}
+                  activeAlert={activeAlert}
+                  getGraphImage={() => null}
+                  theme={theme}
+                  onRegenerate={handleGenerateSAR}
+                  isGenerating={sarLoading}
+                  onClose={() => setSarReport(null)}
+                />
               ) : (
                 <div className="bg-surface-container-low border border-outline-variant border-dashed rounded-lg p-6 text-xs text-on-surface-variant italic flex items-center justify-center h-32">
                   {sarLoading ? (

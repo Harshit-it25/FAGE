@@ -14,6 +14,8 @@ import AlertsQueueView from './components/AlertsQueueView';
 import LoginView from './components/LoginView';
 import AdminAuditView from './components/AdminAuditView';
 import DifferentialPrivacyControls from './components/DifferentialPrivacyControls';
+import ReportView from './components/ReportView';
+import SARPrintView from './components/SARPrintView';
 
 import { useDashboardSummary, useUpdateAlert, useAlertById, useAlerts } from './hooks/useFageApi';
 import { mapApiAlert } from './utils/mapAlert';
@@ -516,6 +518,22 @@ export default function App() {
         element={
           <RequireAuth>
             <WorkbenchShell />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/report"
+        element={
+          <RequireAuth>
+            <ReportView />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/sar-report/:alertId"
+        element={
+          <RequireAuth>
+            <SARPrintView />
           </RequireAuth>
         }
       />
